@@ -225,40 +225,7 @@ final appRouter = GoRouter(
           ),
         ),
 
-        // Booking Details
-        GoRoute(
-          path: '/booking-details/:bookingId',
-          pageBuilder: (context, state) {
-            final bookingId = state.pathParameters['bookingId'] ?? '';
-            if (bookingId.isEmpty) {
-              // Redirect to home if bookingId is missing
-              return const NoTransitionPage(child: HomeScreen());
-            }
-            return NoTransitionPage(
-              child: BookingDetailScreen(bookingId: bookingId),
-            );
-          },
-        ),
 
-        // Chat Screen
-        GoRoute(
-          path: '/chat/:bookingId',
-          pageBuilder: (context, state) {
-            final bookingId = state.pathParameters['bookingId'] ?? '';
-            if (bookingId.isEmpty) {
-              // Redirect to home if bookingId is missing
-              return const NoTransitionPage(child: HomeScreen());
-            }
-            final extra = state.extra as Map<String, dynamic>?;
-            return NoTransitionPage(
-              child: ChatScreen(
-                bookingId: bookingId,
-                customerId: extra?['customerId'],
-                providerId: extra?['providerId'],
-              ),
-            );
-          },
-        ),
       ],
     ),
 
@@ -277,6 +244,32 @@ final appRouter = GoRouter(
       builder: (context, state) {
         final providerId = state.pathParameters['providerId'] ?? '';
         return ProviderDetailScreen(providerId: providerId);
+      },
+    ),
+
+    // Booking Details (Moved out of ShellRoute)
+    GoRoute(
+      path: '/booking-details/:bookingId',
+      // Use builder instead of pageBuilder for standard transition
+      builder: (context, state) {
+        final bookingId = state.pathParameters['bookingId'] ?? '';
+        // Note: NoTransitionPage handling was removed as we are now using standard transitions
+        // and error handling is better done within the screen or via redirect
+        return BookingDetailScreen(bookingId: bookingId);
+      },
+    ),
+
+    // Chat Screen (Moved out of ShellRoute)
+    GoRoute(
+      path: '/chat/:bookingId',
+      builder: (context, state) {
+        final bookingId = state.pathParameters['bookingId'] ?? '';
+        final extra = state.extra as Map<String, dynamic>?;
+        return ChatScreen(
+          bookingId: bookingId,
+          customerId: extra?['customerId'],
+          providerId: extra?['providerId'],
+        );
       },
     ),
 

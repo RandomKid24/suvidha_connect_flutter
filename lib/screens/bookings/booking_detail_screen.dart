@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:iconsax/iconsax.dart';
@@ -5,6 +6,7 @@ import 'package:intl/intl.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/theme_extensions.dart';
 import '../../services/api_service.dart';
+import '../../services/notification_scheduler_service.dart';
 import '../../widgets/app_header.dart';
 
 class BookingDetailScreen extends StatefulWidget {
@@ -21,12 +23,29 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
   bool _isLoading = true;
   String? _error;
   String? _userRole;
+  Timer? _refreshTimer;
 
   @override
   void initState() {
     super.initState();
     _loadUserRole();
     _loadBookingDetails();
+    _startPolling();
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
+  }
+
+  void _startPolling() {
+    _refreshTimer?.cancel();
+    _refreshTimer = Timer.periodic(const Duration(seconds: 10), (timer) {
+      if (mounted) {
+        _refreshBookingDetailsSilently();
+      }
+    });
   }
 
   Future<void> _loadUserRole() async {
@@ -67,11 +86,44 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
           );
           if (_booking == null) {
             _error = 'Booking not found';
+          } else {
+            // Schedule reminders if it is an accepted/in_progress booking
+            final status = _booking!['status'];
+            if (status == 'accepted' || status == 'in_progress') {
+              NotificationSchedulerService.scheduleBookingReminders(_booking!);
+            }
           }
         } else {
           _error = result['error']?['message'] ?? 'Failed to load booking details';
         }
       });
+    }
+  }
+
+  Future<void> _refreshBookingDetailsSilently() async {
+    final bId = int.tryParse(widget.bookingId);
+    if (bId == null) return;
+
+    final result = await ApiService.getUserBookings();
+    
+    if (mounted && result['success'] == true) {
+      final bookings = result['data'] as List;
+      final newBooking = bookings.firstWhere(
+        (b) => b['id'] == bId,
+        orElse: () => null,
+      );
+      
+      if (newBooking != null) {
+        // Only update if something changed
+        if (_booking == null || 
+            _booking!['status'] != newBooking['status'] ||
+            _booking!['proposed_price'] != newBooking['proposed_price'] ||
+            _booking!['price_locked'] != newBooking['price_locked']) {
+          setState(() {
+            _booking = newBooking;
+          });
+        }
+      }
     }
   }
 
@@ -443,8 +495,28 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
   }
 
   Widget _buildDetailsSection(BuildContext context) {
-    final date = _booking!['preferred_date'] ?? '';
-    final time = _booking!['preferred_time'] ?? '';
+    // Collect all possible date/time fields
+    final preferredDate = _booking!['preferred_date'] ?? '';
+    final preferredTime = _booking!['preferred_time'] ?? '';
+    final scheduledDateRaw = _booking!['scheduled_date'];
+    
+    String displayDateTime = 'Not specified';
+    
+    if (scheduledDateRaw != null) {
+      try {
+        final date = DateTime.parse(scheduledDateRaw);
+        displayDateTime = DateFormat('MMM d, yyyy • h:mm a').format(date);
+      } catch (e) {
+        displayDateTime = scheduledDateRaw.toString();
+      }
+    } else if (preferredDate.isNotEmpty || preferredTime.isNotEmpty) {
+      if (preferredDate.isNotEmpty && preferredTime.isNotEmpty) {
+        displayDateTime = '$preferredDate at $preferredTime';
+      } else {
+        displayDateTime = preferredDate.isNotEmpty ? preferredDate : preferredTime;
+      }
+    }
+
     final address = _booking!['address'] ?? 'Not specified';
     final description = _booking!['description'] ?? 'No description';
     
@@ -565,8 +637,7 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
             ),
           ),
           const SizedBox(height: 16),
-          _buildDetailRow(context, Iconsax.calendar, 'Date & Time', 
-            date.isNotEmpty && time.isNotEmpty ? '$date at $time' : date.isNotEmpty ? date : time.isNotEmpty ? time : 'Not specified'),
+          _buildDetailRow(context, Iconsax.calendar, 'Date & Time', displayDateTime),
           const SizedBox(height: 12),
           _buildDetailRow(context, Iconsax.location, 'Address', address),
           const SizedBox(height: 12),

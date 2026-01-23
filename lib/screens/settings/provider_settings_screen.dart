@@ -15,6 +15,7 @@ class ProviderSettingsScreen extends StatefulWidget {
 
 class _ProviderSettingsScreenState extends State<ProviderSettingsScreen> {
   Map<String, dynamic>? _providerData;
+  List<dynamic> _reviews = [];
   bool _isLoading = true;
   bool _isSaving = false;
   String? _availableFromDay;
@@ -88,7 +89,22 @@ class _ProviderSettingsScreenState extends State<ProviderSettingsScreen> {
           if (_providerData?['max_price'] != null) {
             _maxPriceController.text = _providerData!['max_price'].toString();
           }
+          
+          // Load reviews for this provider
+          final providerId = _providerData?['id'];
+          if (providerId != null) {
+            _loadReviews(providerId);
+          }
         }
+      });
+    }
+  }
+  
+  Future<void> _loadReviews(int providerId) async {
+    final reviewsResult = await ApiService.getReviews(providerId: providerId);
+    if (mounted && reviewsResult['success'] == true) {
+      setState(() {
+        _reviews = reviewsResult['data'] as List;
       });
     }
   }
@@ -558,6 +574,255 @@ class _ProviderSettingsScreenState extends State<ProviderSettingsScreen> {
                               ],
                             ),
                           ).animate(delay: 200.ms).fadeIn(duration: 500.ms).moveY(begin: 20, end: 0),
+                          
+                          const SizedBox(height: 16),
+                          
+                          // Documents Section
+                          Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: context.cardColor,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: context.borderColor),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Icon(Iconsax.document_text, color: AppColors.primary),
+                                    const SizedBox(width: 12),
+                                    Text(
+                                      'Verification Documents',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 16,
+                                        color: context.foregroundColor,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 16),
+                                
+                                // Profile Photo
+                                if (_providerData?['profile_photo'] != null)
+                                  _buildDocumentRow(
+                                    context,
+                                    'Profile Photo',
+                                    _providerData!['profile_photo'],
+                                    Iconsax.user,
+                                  ),
+                                
+                                // PAN Card
+                                if (_providerData?['pan_card'] != null) ...[
+                                  const SizedBox(height: 12),
+                                  _buildDocumentRow(
+                                    context,
+                                    'PAN Card',
+                                    _providerData!['pan_card'],
+                                    Iconsax.card,
+                                  ),
+                                ],
+                                
+                                // Registration Certificate
+                                if (_providerData?['registration_certificate'] != null) ...[
+                                  const SizedBox(height: 12),
+                                  _buildDocumentRow(
+                                    context,
+                                    'Registration Certificate',
+                                    _providerData!['registration_certificate'],
+                                    Iconsax.document,
+                                  ),
+                                ],
+                                
+                                // Verification Status
+                                const SizedBox(height: 16),
+                                Container(
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: _getVerificationStatusColor().withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(
+                                      color: _getVerificationStatusColor().withOpacity(0.3),
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        _getVerificationStatusIcon(),
+                                        color: _getVerificationStatusColor(),
+                                        size: 20,
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              'Verification Status',
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                color: context.mutedForegroundColor,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 2),
+                                            Text(
+                                              _getVerificationStatusText(),
+                                              style: TextStyle(
+                                                fontSize: 14,
+                                                fontWeight: FontWeight.w600,
+                                                color: _getVerificationStatusColor(),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ).animate(delay: 300.ms).fadeIn(duration: 500.ms).moveY(begin: 20, end: 0),
+                          
+                          const SizedBox(height: 16),
+                          
+                          // Reviews Section
+                          Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: context.cardColor,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: context.borderColor),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Icon(Iconsax.star, color: AppColors.primary),
+                                    const SizedBox(width: 12),
+                                    Text(
+                                      'My Reviews',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 16,
+                                        color: context.foregroundColor,
+                                      ),
+                                    ),
+                                    const Spacer(),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                      decoration: BoxDecoration(
+                                        color: AppColors.primary.withOpacity(0.1),
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      child: Text(
+                                        '${_reviews.length}',
+                                        style: TextStyle(
+                                          color: AppColors.primary,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 16),
+                                
+                                if (_reviews.isEmpty)
+                                  Center(
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(vertical: 24),
+                                      child: Column(
+                                        children: [
+                                          Icon(
+                                            Iconsax.star,
+                                            size: 48,
+                                            color: context.mutedForegroundColor.withOpacity(0.5),
+                                          ),
+                                          const SizedBox(height: 12),
+                                          Text(
+                                            'No reviews yet',
+                                            style: TextStyle(
+                                              color: context.mutedForegroundColor,
+                                              fontSize: 14,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  )
+                                else
+                                  ..._reviews.map((review) {
+                                    final rating = review['rating'] as int? ?? 0;
+                                    final comment = review['comment']?.toString() ?? '';
+                                    final customerName = review['customer_name']?.toString() ?? 'Anonymous';
+                                    final serviceName = review['service_category']?['name']?.toString() ?? 
+                                                       review['service_name']?.toString() ?? '';
+                                    
+                                    return Container(
+                                      margin: const EdgeInsets.only(bottom: 12),
+                                      padding: const EdgeInsets.all(12),
+                                      decoration: BoxDecoration(
+                                        color: context.backgroundColor,
+                                        borderRadius: BorderRadius.circular(8),
+                                        border: Border.all(color: context.borderColor.withOpacity(0.5)),
+                                      ),
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Row(
+                                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                            children: [
+                                              Expanded(
+                                                child: Text(
+                                                  customerName,
+                                                  style: TextStyle(
+                                                    fontWeight: FontWeight.w600,
+                                                    fontSize: 14,
+                                                    color: context.foregroundColor,
+                                                  ),
+                                                ),
+                                              ),
+                                              Row(
+                                                children: List.generate(
+                                                  5,
+                                                  (index) => Icon(
+                                                    index < rating ? Iconsax.star1 : Iconsax.star,
+                                                    color: index < rating ? Colors.amber : context.mutedForegroundColor,
+                                                    size: 16,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                          if (serviceName.isNotEmpty) ...[
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              'Service: $serviceName',
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                color: context.mutedForegroundColor,
+                                              ),
+                                            ),
+                                          ],
+                                          if (comment.isNotEmpty) ...[
+                                            const SizedBox(height: 8),
+                                            Text(
+                                              comment,
+                                              style: TextStyle(
+                                                fontSize: 13,
+                                                color: context.foregroundColor,
+                                              ),
+                                            ),
+                                          ],
+                                        ],
+                                      ),
+                                    );
+                                  }).toList(),
+                              ],
+                            ),
+                          ).animate(delay: 400.ms).fadeIn(duration: 500.ms).moveY(begin: 20, end: 0),
                         ],
                       ),
                     ),
@@ -566,6 +831,104 @@ class _ProviderSettingsScreenState extends State<ProviderSettingsScreen> {
         ),
       ),
     );
+  }
+  
+  Widget _buildDocumentRow(BuildContext context, String label, String? url, IconData icon) {
+    final hasDocument = url != null && url.isNotEmpty;
+    
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: context.backgroundColor,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: hasDocument ? AppColors.success.withOpacity(0.1) : context.mutedColor,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(
+              icon,
+              color: hasDocument ? AppColors.success : context.mutedForegroundColor,
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    color: context.foregroundColor,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  hasDocument ? 'Uploaded' : 'Not uploaded',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: hasDocument ? AppColors.success : context.mutedForegroundColor,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (hasDocument)
+            Icon(
+              Iconsax.tick_circle,
+              color: AppColors.success,
+              size: 20,
+            ),
+        ],
+      ),
+    );
+  }
+  
+  Color _getVerificationStatusColor() {
+    final status = _providerData?['verification_status'] ?? 'pending';
+    switch (status) {
+      case 'verified':
+        return AppColors.success;
+      case 'rejected':
+        return AppColors.error;
+      case 'pending':
+      default:
+        return AppColors.warning;
+    }
+  }
+  
+  IconData _getVerificationStatusIcon() {
+    final status = _providerData?['verification_status'] ?? 'pending';
+    switch (status) {
+      case 'verified':
+        return Iconsax.tick_circle;
+      case 'rejected':
+        return Iconsax.close_circle;
+      case 'pending':
+      default:
+        return Iconsax.clock;
+    }
+  }
+  
+  String _getVerificationStatusText() {
+    final status = _providerData?['verification_status'] ?? 'pending';
+    switch (status) {
+      case 'verified':
+        return 'Verified ✓';
+      case 'rejected':
+        return 'Rejected - Please contact support';
+      case 'pending':
+      default:
+        return 'Pending Review';
+    }
   }
 }
 

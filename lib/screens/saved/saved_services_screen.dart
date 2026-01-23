@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:go_router/go_router.dart';
@@ -28,6 +29,7 @@ class _SavedServicesScreenState extends State<SavedServicesScreen> {
   final MapController _mapController = MapController();
   double _radius = 30.0; // Default 30 km radius
   final TextEditingController _searchController = TextEditingController();
+  Timer? _debounceTimer;
 
   @override
   void initState() {
@@ -43,6 +45,7 @@ class _SavedServicesScreenState extends State<SavedServicesScreen> {
   @override
   void dispose() {
     _searchController.dispose();
+    _debounceTimer?.cancel();
     super.dispose();
   }
 
@@ -72,9 +75,15 @@ class _SavedServicesScreenState extends State<SavedServicesScreen> {
   }
 
   Future<void> _loadProviders() async {
+    final searchQuery = _searchController.text.isNotEmpty ? _searchController.text : null;
+    print('🔍 [Saved Services] Searching for: "$searchQuery"');
+    print('📍 Service category ID: $_selectedServiceId');
+    print('📍 User location: $_userLocation');
+    print('📍 Radius: $_radius km');
+    
     final providersResult = await ApiService.getProviders(
       serviceCategoryId: _selectedServiceId,
-      searchQuery: _searchController.text.isNotEmpty ? _searchController.text : null,
+      searchQuery: searchQuery,
       latitude: _userLocation != null ? _userLocation!.latitude : null,
       longitude: _userLocation != null ? _userLocation!.longitude : null,
       radius: _userLocation != null ? _radius : null, // Apply radius filter when location is available
@@ -85,6 +94,12 @@ class _SavedServicesScreenState extends State<SavedServicesScreen> {
         _isLoading = false;
         if (providersResult['success'] == true) {
           _providers = providersResult['data'] as List;
+          print('✅ Found ${_providers.length} providers');
+          if (_providers.isNotEmpty) {
+            print('📋 First provider: ${_providers[0]['name']}');
+          }
+        } else {
+          print('❌ Error loading providers: ${providersResult['error']}');
         }
       });
     }
@@ -190,7 +205,7 @@ class _SavedServicesScreenState extends State<SavedServicesScreen> {
                 child: TextField(
                   controller: _searchController,
                   decoration: InputDecoration(
-                    hintText: 'Search providers by name, service, or location...',
+                    hintText: 'Search by name, service, or location...',
                     hintStyle: TextStyle(color: context.mutedForegroundColor, fontSize: 14),
                     prefixIcon: Icon(Iconsax.search_normal, color: AppColors.primary, size: 22),
                     suffixIcon: _searchController.text.isNotEmpty
@@ -206,22 +221,29 @@ class _SavedServicesScreenState extends State<SavedServicesScreen> {
                     contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
                   ),
                   style: TextStyle(color: context.foregroundColor, fontSize: 15),
-                  onChanged: (_) {
-                    // Debounce search
-                    Future.delayed(const Duration(milliseconds: 500), () {
-                      if (_searchController.text.length >= 2 || _searchController.text.isEmpty) {
+                  onChanged: (value) {
+                    // Update UI immediately
+                    setState(() {});
+                    // Cancel previous timer
+                    _debounceTimer?.cancel();
+                    // Start new timer for search
+                    _debounceTimer = Timer(const Duration(milliseconds: 800), () {
+                      if (value.length >= 1 || value.isEmpty) {
                         _applyFilters();
                       }
                     });
                   },
-                  onSubmitted: (_) => _applyFilters(),
+                  onSubmitted: (value) {
+                    _debounceTimer?.cancel();
+                    _applyFilters();
+                  },
                 ),
               ),
             ),
             
             // Filter dropdowns
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               decoration: BoxDecoration(
                 color: context.cardColor,
                 border: Border(
@@ -230,8 +252,6 @@ class _SavedServicesScreenState extends State<SavedServicesScreen> {
               ),
               child: Row(
                 children: [
-                  Icon(Iconsax.filter, color: AppColors.primary, size: 20),
-                  const SizedBox(width: 12),
                   Expanded(
                     child: DropdownButtonFormField<int?>(
                       value: _selectedServiceId,
@@ -240,7 +260,7 @@ class _SavedServicesScreenState extends State<SavedServicesScreen> {
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
                         isDense: true,
                       ),
                       items: [
@@ -264,17 +284,17 @@ class _SavedServicesScreenState extends State<SavedServicesScreen> {
                       },
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: DropdownButtonFormField<double>(
                       value: _radius,
                       decoration: InputDecoration(
                         labelText: 'Radius',
-                        prefixIcon: Icon(Iconsax.location, size: 18),
+                        prefixIcon: Icon(Iconsax.location, size: 16),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
                         isDense: true,
                       ),
                       items: const [
@@ -408,9 +428,14 @@ class _SavedServicesScreenState extends State<SavedServicesScreen> {
     }
 
     // Add provider markers with service-specific icons
+    print('🗺️ Building markers for ${_providers.length} providers');
+    int markersAdded = 0;
+    int providersWithoutLocation = 0;
+    
     for (var provider in _providers) {
       final lat = provider['latitude'];
       final lon = provider['longitude'];
+      final providerName = provider['name'] ?? 'Unknown';
       
       if (lat != null && lon != null) {
         try {
@@ -418,6 +443,7 @@ class _SavedServicesScreenState extends State<SavedServicesScreen> {
           final longitude = double.tryParse(lon.toString());
           
           if (latitude != null && longitude != null) {
+            print('✅ Adding marker for: $providerName at ($latitude, $longitude)');
             // Get the first service category to determine icon
             final services = provider['services'] as List? ?? [];
             IconData serviceIcon = Iconsax.location; // Default icon
@@ -465,13 +491,22 @@ class _SavedServicesScreenState extends State<SavedServicesScreen> {
                 ),
               ),
             );
+            markersAdded++;
+          } else {
+            print('⚠️ Invalid coordinates for: $providerName (lat: $lat, lon: $lon)');
+            providersWithoutLocation++;
           }
         } catch (e) {
-          print('Error parsing coordinates for provider ${provider['id']}: $e');
+          print('❌ Error parsing coordinates for provider ${provider['id']}: $e');
+          providersWithoutLocation++;
         }
+      } else {
+        print('⚠️ No location data for: $providerName');
+        providersWithoutLocation++;
       }
     }
-
+    
+    print('📊 Markers summary: $markersAdded added, $providersWithoutLocation without location');
     return markers;
   }
 

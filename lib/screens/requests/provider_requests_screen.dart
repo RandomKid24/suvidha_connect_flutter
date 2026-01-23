@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:go_router/go_router.dart';
@@ -6,6 +7,7 @@ import 'package:intl/intl.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/theme_extensions.dart';
 import '../../services/api_service.dart';
+import '../../services/notification_scheduler_service.dart';
 import '../../widgets/app_header.dart';
 
 class ProviderRequestsScreen extends StatefulWidget {
@@ -18,11 +20,47 @@ class ProviderRequestsScreen extends StatefulWidget {
 class _ProviderRequestsScreenState extends State<ProviderRequestsScreen> {
   List<dynamic> _requests = [];
   bool _isLoading = true;
+  Timer? _refreshTimer;
 
   @override
   void initState() {
     super.initState();
     _loadRequests();
+    _startPolling();
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
+  }
+
+  void _startPolling() {
+    _refreshTimer?.cancel();
+    _refreshTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
+      if (mounted) {
+        _refreshRequestsSilently();
+      }
+    });
+  }
+
+  Future<void> _refreshRequestsSilently() async {
+    final result = await ApiService.getProviderRequests();
+    if (mounted && result['success'] == true) {
+      setState(() {
+        _requests = result['data'] as List;
+        _scheduleReminders();
+      });
+    }
+  }
+
+  void _scheduleReminders() {
+    for (var request in _requests) {
+      final status = request['status'];
+      if (status == 'accepted' || status == 'in_progress') {
+        NotificationSchedulerService.scheduleBookingReminders(request);
+      }
+    }
   }
 
   Future<void> _loadRequests() async {
@@ -34,6 +72,8 @@ class _ProviderRequestsScreenState extends State<ProviderRequestsScreen> {
       if (result['success'] == true) {
         setState(() {
           _requests = result['data'] as List;
+          // Schedule reminders for accepted requests
+          _scheduleReminders();
         });
       }
     }
@@ -136,9 +176,12 @@ class _ProviderRequestsScreenState extends State<ProviderRequestsScreen> {
           children: [
             const AppHeader(),
             Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(16),
-                child: Column(
+              child: RefreshIndicator(
+                onRefresh: _loadRequests,
+                child: SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
@@ -209,11 +252,12 @@ class _ProviderRequestsScreenState extends State<ProviderRequestsScreen> {
                 ),
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildRequestCard(dynamic request, int index) {
     final requestId = request['id'] ?? 0;

@@ -226,7 +226,17 @@ class _SignupScreenState extends State<SignupScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const SizedBox(height: 32),
+              // Back button
+              IconButton(
+                onPressed: () => context.go('/role-select'),
+                icon: Icon(
+                  Iconsax.arrow_left,
+                  color: context.foregroundColor,
+                ),
+                tooltip: 'Back to role selection',
+              ).animate().fadeIn(duration: 500.ms),
+
+              const SizedBox(height: 16),
               
               // Header
               Text(

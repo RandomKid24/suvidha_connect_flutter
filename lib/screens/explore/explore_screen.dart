@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:go_router/go_router.dart';
@@ -30,13 +31,13 @@ class _ExploreScreenState extends State<ExploreScreen> {
   String? _sortBy; // 'price_low' or 'price_high'
   Position? _userPosition;
   double _radius = 30.0; // Default 30 km radius
+  Timer? _debounceTimer;
 
   @override
   void initState() {
     super.initState();
     _serviceName = _formatServiceName(widget.serviceId);
-    _loadServiceCategories();
-    _loadProviders();
+    _initializeData();
     _getUserLocation();
     
     // Listen to search controller changes to update UI
@@ -45,9 +46,17 @@ class _ExploreScreenState extends State<ExploreScreen> {
     });
   }
 
+  Future<void> _initializeData() async {
+    // Load service categories first to set the selected service ID
+    await _loadServiceCategories();
+    // Then load providers with the correct filter
+    await _loadProviders();
+  }
+
   @override
   void dispose() {
     _searchController.dispose();
+    _debounceTimer?.cancel();
     super.dispose();
   }
 
@@ -119,10 +128,14 @@ class _ExploreScreenState extends State<ExploreScreen> {
   Future<void> _loadProviders() async {
     setState(() => _isLoading = true);
     
+    final searchQuery = _searchController.text.isNotEmpty ? _searchController.text : null;
+    print('🔍 Loading providers with search query: "$searchQuery"');
+    print('📍 Service category ID: $_selectedServiceId');
+    
     // Fetch providers with filters
     final result = await ApiService.getProviders(
       serviceCategoryId: _selectedServiceId,
-      searchQuery: _searchController.text.isNotEmpty ? _searchController.text : null,
+      searchQuery: searchQuery,
       latitude: _useLocationFilter && _userPosition != null ? _userPosition!.latitude : null,
       longitude: _useLocationFilter && _userPosition != null ? _userPosition!.longitude : null,
       radius: _useLocationFilter ? _radius : null, // Use selected radius
@@ -133,9 +146,13 @@ class _ExploreScreenState extends State<ExploreScreen> {
     if (mounted) {
       setState(() => _isLoading = false);
       if (result['success'] == true) {
+        final providers = result['data'] as List;
+        print('✅ Found ${providers.length} providers');
         setState(() {
-          _providers = result['data'] as List;
+          _providers = providers;
         });
+      } else {
+        print('❌ Error loading providers: ${result['error']}');
       }
     }
   }
@@ -148,6 +165,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
   Widget build(BuildContext context) {
 
     return Scaffold(
+      resizeToAvoidBottomInset: true,
       backgroundColor: context.backgroundColor,
       body: SafeArea(
         child: Column(
@@ -155,7 +173,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
             const AppHeader(),
             Expanded(
               child: SingleChildScrollView(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(12),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -169,7 +187,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                       ),
                     ).animate().fadeIn(duration: 500.ms).moveY(begin: 20, end: 0),
                     
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 12),
                     
                     // Search Bar - More Prominent
                     Container(
@@ -188,7 +206,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                       child: TextField(
                         controller: _searchController,
                         decoration: InputDecoration(
-                          hintText: 'Search providers by name, service, or location...',
+                          hintText: 'Search by name, service, or location...',
                           hintStyle: TextStyle(color: context.mutedForegroundColor, fontSize: 14),
                           prefixIcon: Icon(Iconsax.search_normal, color: AppColors.primary, size: 22),
                           suffixIcon: _searchController.text.isNotEmpty
@@ -204,23 +222,32 @@ class _ExploreScreenState extends State<ExploreScreen> {
                           contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
                         ),
                         style: TextStyle(color: context.foregroundColor, fontSize: 15),
-                        onChanged: (_) {
-                          // Debounce search - search after user stops typing
-                          Future.delayed(const Duration(milliseconds: 500), () {
-                            if (_searchController.text.length >= 2 || _searchController.text.isEmpty) {
+                        onChanged: (value) {
+                          // Update UI immediately to show/hide clear button
+                          setState(() {});
+                          // Cancel previous timer
+                          _debounceTimer?.cancel();
+                          // Start new timer for search
+                          _debounceTimer = Timer(const Duration(milliseconds: 800), () {
+                            if (value.length >= 1 || value.isEmpty) {
+                              print('🔍 Triggering search for: "$value"');
                               _applyFilters();
                             }
                           });
                         },
-                        onSubmitted: (_) => _applyFilters(),
+                        onSubmitted: (value) {
+                          print('⌨️ Search submitted: "$value"');
+                          _debounceTimer?.cancel();
+                          _applyFilters();
+                        },
                       ),
                     ).animate(delay: 100.ms).fadeIn(duration: 500.ms).moveY(begin: 20, end: 0),
                     
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 8),
                     
                     // Filters
                     Container(
-                      padding: const EdgeInsets.all(16),
+                      padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
                         color: context.cardColor,
                         borderRadius: BorderRadius.circular(12),
@@ -243,7 +270,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                               ),
                             ],
                           ),
-                          const SizedBox(height: 16),
+                          const SizedBox(height: 12),
                           
                           // Category Filter
                           DropdownButtonFormField<int?>(
@@ -292,7 +319,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                             style: TextStyle(color: context.foregroundColor),
                           ),
                           
-                          const SizedBox(height: 12),
+                          const SizedBox(height: 8),
                           
                           // Location Filter
                           Column(
@@ -301,18 +328,20 @@ class _ExploreScreenState extends State<ExploreScreen> {
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                 children: [
-                                  Row(
-                                    children: [
-                                      Icon(Iconsax.location, color: context.mutedForegroundColor, size: 20),
-                                      const SizedBox(width: 8),
-                                      Text(
-                                        'Near Me',
-                                        style: TextStyle(
-                                          color: context.foregroundColor,
-                                          fontSize: 14,
+                                  Expanded(
+                                    child: Row(
+                                      children: [
+                                        Icon(Iconsax.location, color: context.mutedForegroundColor, size: 20),
+                                        const SizedBox(width: 8),
+                                        Text(
+                                          'Near Me',
+                                          style: TextStyle(
+                                            color: context.foregroundColor,
+                                            fontSize: 14,
+                                          ),
                                         ),
-                                      ),
-                                    ],
+                                      ],
+                                    ),
                                   ),
                                   Switch(
                                     value: _useLocationFilter,
@@ -327,7 +356,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                                 ],
                               ),
                               // Radius selector (always visible, but disabled when location filter is off)
-                              const SizedBox(height: 12),
+                              const SizedBox(height: 8),
                               DropdownButtonFormField<double>(
                                 value: _radius,
                                 decoration: InputDecoration(
@@ -383,24 +412,26 @@ class _ExploreScreenState extends State<ExploreScreen> {
                             ],
                           ),
                           
-                          const SizedBox(height: 12),
+                          const SizedBox(height: 8),
                           
                           // Available Only Filter
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              Row(
-                                children: [
-                                  Icon(Iconsax.tick_circle, color: context.mutedForegroundColor, size: 20),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    'Available Only',
-                                    style: TextStyle(
-                                      color: context.foregroundColor,
-                                      fontSize: 14,
+                              Expanded(
+                                child: Row(
+                                  children: [
+                                    Icon(Iconsax.tick_circle, color: context.mutedForegroundColor, size: 20),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      'Available Only',
+                                      style: TextStyle(
+                                        color: context.foregroundColor,
+                                        fontSize: 14,
+                                      ),
                                     ),
-                                  ),
-                                ],
+                                  ],
+                                ),
                               ),
                               Switch(
                                 value: _availableOnly,
@@ -415,7 +446,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                             ],
                           ),
                           
-                          const SizedBox(height: 12),
+                          const SizedBox(height: 8),
                           
                           // Sort By Price
                           DropdownButtonFormField<String?>(
@@ -460,7 +491,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                       ),
                     ).animate(delay: 150.ms).fadeIn(duration: 500.ms).moveY(begin: 20, end: 0),
                     
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 12),
                     
                     // Provider List
                     if (_isLoading)

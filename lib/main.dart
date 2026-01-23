@@ -6,6 +6,7 @@ import 'core/theme/app_theme.dart';
 import 'core/router/app_router.dart';
 import 'services/theme_service.dart';
 import 'services/push_notification_service.dart';
+import 'services/notification_scheduler_service.dart';
 
 // Background message handler (must be top-level)
 @pragma('vm:entry-point')
@@ -47,6 +48,8 @@ Future<void> _initializeFirebase() async {
     FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
     // Initialize push notifications
     await PushNotificationService.initialize();
+    // Initialize notification scheduler
+    await NotificationSchedulerService.initialize();
     print('✅ Firebase and push notifications initialized');
   } catch (e) {
     print('⚠️ Firebase initialization failed: $e');

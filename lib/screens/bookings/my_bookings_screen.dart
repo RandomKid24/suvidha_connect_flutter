@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:go_router/go_router.dart';
@@ -6,6 +7,7 @@ import 'package:intl/intl.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/theme_extensions.dart';
 import '../../services/api_service.dart';
+import '../../services/notification_scheduler_service.dart';
 import '../../widgets/app_header.dart';
 
 class MyBookingsScreen extends StatefulWidget {
@@ -20,11 +22,37 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
   List<dynamic> _reviews = [];
   bool _isLoading = true;
   String? _error;
+  Timer? _refreshTimer;
 
   @override
   void initState() {
     super.initState();
     _loadData();
+    _startPolling();
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
+  }
+
+  void _startPolling() {
+    _refreshTimer?.cancel();
+    _refreshTimer = Timer.periodic(const Duration(seconds: 15), (timer) {
+      if (mounted) {
+        _refreshDataSilently();
+      }
+    });
+  }
+
+  Future<void> _refreshDataSilently() async {
+    final bookingsResult = await ApiService.getUserBookings();
+    if (mounted && bookingsResult['success'] == true) {
+      setState(() {
+        _bookings = bookingsResult['data'] as List;
+      });
+    }
   }
 
   Future<void> _loadData() async {
@@ -42,6 +70,8 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
         _isLoading = false;
         if (bookingsResult['success'] == true) {
           _bookings = bookingsResult['data'] as List;
+          // Schedule reminders for upcoming bookings
+          _scheduleUpcomingReminders();
         }
         if (reviewsResult['success'] == true) {
           _reviews = reviewsResult['data'] as List;
@@ -242,6 +272,15 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
     }
   }
 
+  void _scheduleUpcomingReminders() {
+    for (var booking in _bookings) {
+      final status = booking['status'];
+      if (status == 'accepted' || status == 'in_progress') {
+        NotificationSchedulerService.scheduleBookingReminders(booking);
+      }
+    }
+  }
+
   Future<void> _showReviewDialog(Map<String, dynamic> booking) async {
     final providerId = booking['provider']?['id'];
     
@@ -417,9 +456,12 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
           children: [
             const AppHeader(),
             Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(16),
-                child: Column(
+              child: RefreshIndicator(
+                onRefresh: _loadData,
+                child: SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
@@ -518,11 +560,12 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
                 ),
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildBookingCard(Map<String, dynamic> booking, int index) {
     final status = booking['status'] ?? 'pending';

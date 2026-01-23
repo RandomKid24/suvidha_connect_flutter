@@ -973,8 +973,6 @@ class ApiService {
       print('   Data: $data');
       print('   Profile photo: ${profilePhoto != null ? profilePhoto.path : "none"}');
       
-      final headers = await _getHeaders(includeAuth: true);
-      
       // If profile photo is provided, use multipart form data
       if (profilePhoto != null) {
         final request = http.MultipartRequest(
@@ -983,24 +981,38 @@ class ApiService {
         );
         
         // Add session cookie
-        final sessionId = await SharedPreferences.getInstance().then((prefs) => prefs.getString('session_id'));
+        final prefs = await SharedPreferences.getInstance();
+        final sessionId = prefs.getString('session_id');
         if (sessionId != null && sessionId.isNotEmpty) {
           request.headers['Cookie'] = 'sessionid=$sessionId';
+          print('   Added session cookie');
+        } else {
+          print('⚠️ No session ID found');
+          return {'success': false, 'error': {'message': 'Not authenticated. Please login again.'}};
         }
         
-        // Add text fields
+        // Add text fields (excluding password fields and profile_photo)
         data.forEach((key, value) {
           if (value != null && key != 'profile_photo') {
             request.fields[key] = value.toString();
+            print('   Field: $key = ${key.contains('password') ? '***' : value}');
           }
         });
         
-        // Add profile photo
-        request.files.add(await http.MultipartFile.fromPath(
-          'profile_photo',
-          profilePhoto.path,
-        ));
+        // Add profile photo file
+        try {
+          final multipartFile = await http.MultipartFile.fromPath(
+            'profile_photo',
+            profilePhoto.path,
+          );
+          request.files.add(multipartFile);
+          print('   Added profile photo: ${multipartFile.filename} (${multipartFile.length} bytes)');
+        } catch (e) {
+          print('❌ Error adding profile photo: $e');
+          return {'success': false, 'error': {'message': 'Failed to read profile photo file'}};
+        }
         
+        print('📤 Sending multipart request...');
         final streamedResponse = await request.send().timeout(
           const Duration(seconds: 30),
           onTimeout: () {
@@ -1010,20 +1022,42 @@ class ApiService {
         final response = await http.Response.fromStream(streamedResponse);
         
         print('📥 Profile update response status: ${response.statusCode}');
-        print('📥 Profile update response body: ${response.body}');
+        print('📥 Profile update response body (first 500 chars): ${response.body.substring(0, response.body.length > 500 ? 500 : response.body.length)}');
         
         if (response.statusCode == 200) {
-          final userData = jsonDecode(response.body);
-          return {'success': true, 'data': userData};
-        } else {
           try {
-            return {'success': false, 'error': jsonDecode(response.body)};
+            final userData = jsonDecode(response.body);
+            print('✅ Profile updated successfully');
+            
+            // Update cached user data
+            await prefs.setString('user_data', jsonEncode(userData));
+            
+            return {'success': true, 'data': userData};
           } catch (e) {
-            return {'success': false, 'error': {'message': response.body}};
+            print('❌ Error parsing response: $e');
+            return {'success': false, 'error': {'message': 'Invalid response from server'}};
+          }
+        } else {
+          // Try to parse error response
+          try {
+            final errorData = jsonDecode(response.body);
+            print('❌ Profile update failed: $errorData');
+            return {'success': false, 'error': errorData};
+          } catch (e) {
+            // If response is HTML (like the error page), extract a meaningful message
+            if (response.body.contains('<!DOCTYPE html>')) {
+              print('❌ Server returned HTML error page');
+              return {'success': false, 'error': {'message': 'Server error. Please try again later or contact support.'}};
+            }
+            print('❌ Profile update failed with status ${response.statusCode}');
+            return {'success': false, 'error': {'message': 'Failed to update profile. Status: ${response.statusCode}'}};
           }
         }
       } else {
         // No photo, use regular JSON request
+        final headers = await _getHeaders(includeAuth: true);
+        
+        print('📤 Sending JSON request (no photo)...');
         final response = await http.patch(
           Uri.parse('$baseUrl/auth/users/update_profile/'),
           headers: headers,
@@ -1039,13 +1073,31 @@ class ApiService {
         print('📥 Profile update response body: ${response.body}');
         
         if (response.statusCode == 200) {
-          final userData = jsonDecode(response.body);
-          return {'success': true, 'data': userData};
+          try {
+            final userData = jsonDecode(response.body);
+            print('✅ Profile updated successfully');
+            
+            // Update cached user data
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.setString('user_data', jsonEncode(userData));
+            
+            return {'success': true, 'data': userData};
+          } catch (e) {
+            print('❌ Error parsing response: $e');
+            return {'success': false, 'error': {'message': 'Invalid response from server'}};
+          }
         } else {
           try {
-            return {'success': false, 'error': jsonDecode(response.body)};
+            final errorData = jsonDecode(response.body);
+            print('❌ Profile update failed: $errorData');
+            return {'success': false, 'error': errorData};
           } catch (e) {
-            return {'success': false, 'error': {'message': response.body}};
+            if (response.body.contains('<!DOCTYPE html>')) {
+              print('❌ Server returned HTML error page');
+              return {'success': false, 'error': {'message': 'Server error. Please try again later or contact support.'}};
+            }
+            print('❌ Profile update failed with status ${response.statusCode}');
+            return {'success': false, 'error': {'message': 'Failed to update profile. Status: ${response.statusCode}'}};
           }
         }
       }

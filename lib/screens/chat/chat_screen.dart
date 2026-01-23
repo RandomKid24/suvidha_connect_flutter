@@ -7,6 +7,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/theme_extensions.dart';
 import '../../services/api_service.dart';
+import '../../services/notification_scheduler_service.dart';
 import '../../widgets/app_header.dart';
 
 class ChatScreen extends StatefulWidget {
@@ -41,6 +42,8 @@ class _ChatScreenState extends State<ChatScreen> {
   int _previousMessageCount = 0;
   Map<String, dynamic>? _bookingData;
   final TextEditingController _priceController = TextEditingController();
+  Timer? _refreshTimer;
+  StreamSubscription<DocumentSnapshot>? _chatDocSubscription;
 
   @override
   void initState() {
@@ -54,6 +57,8 @@ class _ChatScreenState extends State<ChatScreen> {
     _priceController.dispose();
     _scrollController.dispose();
     _messagesSubscription?.cancel();
+    _chatDocSubscription?.cancel();
+    _refreshTimer?.cancel();
     super.dispose();
   }
 
@@ -91,28 +96,49 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _loadOtherUserName() async {
     if (_otherUserId == null) return;
     
-    final bookingId = int.tryParse(widget.bookingId);
-    if (bookingId == null) return;
+    final bId = int.tryParse(widget.bookingId);
+    if (bId == null) return;
 
     final result = await ApiService.getUserBookings();
     if (result['success'] == true) {
       final bookings = result['data'] as List;
       final booking = bookings.firstWhere(
-        (b) => b['id'] == bookingId,
+        (b) => b['id'] == bId,
         orElse: () => null,
       );
       
       if (booking != null && mounted) {
-        setState(() {
-          _bookingData = booking;
-          if (_userRole == 'provider') {
-            _otherUserName = booking['customer_name'] ?? booking['customer']?['name'] ?? 'Customer';
-          } else {
-            _otherUserName = booking['provider_name'] ?? booking['provider']?['name'] ?? 'Provider';
-          }
-        });
+        // Only update if there's an actual change to avoid unnecessary rebuilding
+        if (_bookingData == null || 
+            _bookingData!['status'] != booking['status'] || 
+            _bookingData!['proposed_price'] != booking['proposed_price'] ||
+            _bookingData!['price_locked'] != booking['price_locked']) {
+          setState(() {
+            _bookingData = booking;
+            if (_userRole == 'provider') {
+              _otherUserName = booking['customer_name'] ?? booking['customer']?['name'] ?? 'Customer';
+            } else {
+              _otherUserName = booking['provider_name'] ?? booking['provider']?['name'] ?? 'Provider';
+            }
+            
+            // Schedule reminders if status is accepted/in_progress
+            final status = booking['status'];
+            if (status == 'accepted' || status == 'in_progress') {
+              NotificationSchedulerService.scheduleBookingReminders(booking);
+            }
+          });
+        }
       }
     }
+  }
+
+  void _startPolling() {
+    _refreshTimer?.cancel();
+    _refreshTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
+      if (mounted) {
+        _loadOtherUserName();
+      }
+    });
   }
 
   void _setupFirestoreListener() {
@@ -260,11 +286,37 @@ class _ChatScreenState extends State<ChatScreen> {
           );
         }
       });
+
+      // Listen to the chat room document for metadata changes (status/price updates)
+      _chatDocSubscription = _firestore
+          .collection('chats')
+          .doc(chatRoomId)
+          .snapshots()
+          .listen((snapshot) {
+        if (mounted && snapshot.exists) {
+          print('🔔 Chat metadata updated, refreshing booking details');
+          _loadOtherUserName();
+        }
+      });
+      
+      // Start background polling as a fallback
+      _startPolling();
     } catch (e) {
       print('❌ Exception setting up Firestore listener: $e');
       if (mounted) {
         setState(() => _isLoading = false);
       }
+    }
+  }
+
+  Future<void> _triggerMetadataUpdate() async {
+    try {
+      final chatRoomId = 'booking_${widget.bookingId}';
+      await _firestore.collection('chats').doc(chatRoomId).set({
+        'updated_at': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    } catch (e) {
+      print('⚠️ Failed to update chat metadata: $e');
     }
   }
 
@@ -795,6 +847,8 @@ class _ChatScreenState extends State<ChatScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Price of Rs. $price/- proposed')),
         );
+        // Trigger Firestore update for the other party
+        _triggerMetadataUpdate();
         // Reload booking data
         await _loadOtherUserName();
       } else {
@@ -860,6 +914,8 @@ class _ChatScreenState extends State<ChatScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Price accepted! Booking is now accepted.')),
         );
+        // Trigger Firestore update for the other party
+        _triggerMetadataUpdate();
         // Reload booking data
         await _loadOtherUserName();
       } else {
