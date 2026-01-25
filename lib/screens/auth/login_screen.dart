@@ -81,7 +81,7 @@ class _LoginScreenState extends State<LoginScreen> {
           }
           
           // Onboarding is complete, check verification status
-          final statusResult = await ApiService.getProviderStatus();
+          final statusResult = await ApiService.getProviderStatus(forceRefresh: false);
           if (statusResult['success'] == true) {
             final statusData = statusResult['data'];
             if (statusData['can_login'] == true) {
@@ -188,7 +188,12 @@ class _LoginScreenState extends State<LoginScreen> {
       backgroundColor: context.backgroundColor,
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
+          padding: EdgeInsets.only(
+            left: 24,
+            right: 24,
+            top: 24,
+            bottom: 24 + MediaQuery.of(context).padding.bottom,
+          ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [

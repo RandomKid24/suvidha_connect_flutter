@@ -31,14 +31,14 @@ class _SplashScreenState extends State<SplashScreen> {
     
     if (isLoggedIn) {
       // User is logged in, get fresh user data from API to check role
-      final userInfoResult = await ApiService.getCurrentUserInfo();
+      final userInfoResult = await ApiService.getCurrentUserInfo(forceRefresh: false);
       
       if (userInfoResult['success'] == true && userInfoResult['data'] != null) {
         final userData = userInfoResult['data'];
         
         if (userData['role'] == 'provider') {
           // Check provider verification status
-          final statusResult = await ApiService.getProviderStatus();
+          final statusResult = await ApiService.getProviderStatus(forceRefresh: false);
           if (statusResult['success'] == true) {
             final statusData = statusResult['data'];
             

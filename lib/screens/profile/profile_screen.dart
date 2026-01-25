@@ -17,28 +17,58 @@ class ProfileScreen extends StatefulWidget {
   State<ProfileScreen> createState() => _ProfileScreenState();
 }
 
-class _ProfileScreenState extends State<ProfileScreen> {
+class _ProfileScreenState extends State<ProfileScreen> with WidgetsBindingObserver {
   Map<String, dynamic>? _userData;
   bool _isLoading = true;
+  DateTime? _lastLoadTime;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadUserData();
   }
 
-  Future<void> _loadUserData() async {
-    setState(() => _isLoading = true);
-    final result = await ApiService.getCurrentUserInfo();
-    
-    if (mounted) {
-      setState(() => _isLoading = false);
-      if (result['success'] == true) {
-        setState(() {
-          _userData = result['data'];
-        });
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Refresh profile when app comes back to foreground
+    if (state == AppLifecycleState.resumed) {
+      // Only refresh if it's been more than 5 seconds since last load
+      if (_lastLoadTime == null || 
+          DateTime.now().difference(_lastLoadTime!) > const Duration(seconds: 5)) {
+        _loadUserData(forceRefresh: true);
       }
     }
+  }
+
+  Future<void> _loadUserData({bool forceRefresh = false}) async {
+    setState(() => _isLoading = true);
+    final result = await ApiService.getCurrentUserInfo(forceRefresh: forceRefresh);
+    
+    if (mounted) {
+      setState(() {
+        _isLoading = false;
+        _lastLoadTime = DateTime.now();
+        if (result['success'] == true) {
+          _userData = result['data'];
+        }
+      });
+    }
+  }
+
+  void _showFullScreenImage(BuildContext context, String imageUrl) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => _FullScreenImageViewer(imageUrl: imageUrl),
+        fullscreenDialog: true,
+      ),
+    );
   }
 
   @override
@@ -164,42 +194,74 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ),
                       )
                     else ...[
-                      // Profile Image
-                      Container(
-                        padding: const EdgeInsets.all(4),
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: AppColors.primary.withOpacity(0.2),
-                            width: 4,
-                          ),
-                        ),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(40),
-                          child: profilePhoto != null
-                              ? CachedNetworkImage(
-                                  imageUrl: profilePhoto,
-                                  width: 80,
-                                  height: 80,
-                                  fit: BoxFit.cover,
-                                  placeholder: (context, url) => Container(
-                                    width: 80,
-                                    height: 80,
-                                    color: context.mutedColor,
+                      // Profile Image (Clickable to enlarge)
+                      Center(
+                        child: Stack(
+                          children: [
+                            GestureDetector(
+                              onTap: profilePhoto != null ? () => _showFullScreenImage(context, profilePhoto) : null,
+                              child: Container(
+                                padding: const EdgeInsets.all(4),
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: AppColors.primary.withOpacity(0.2),
+                                    width: 4,
                                   ),
-                                  errorWidget: (context, url, error) => Container(
-                                    width: 80,
-                                    height: 80,
-                                    color: context.mutedColor,
-                                    child: const Icon(Iconsax.user),
-                                  ),
-                                )
-                              : Container(
-                                  width: 80,
-                                  height: 80,
-                                  color: context.mutedColor,
-                                  child: const Icon(Iconsax.user, size: 40),
                                 ),
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(40),
+                                  child: profilePhoto != null
+                                      ? CachedNetworkImage(
+                                          imageUrl: profilePhoto,
+                                          width: 80,
+                                          height: 80,
+                                          fit: BoxFit.cover,
+                                          placeholder: (context, url) => Container(
+                                            width: 80,
+                                            height: 80,
+                                            color: context.mutedColor,
+                                          ),
+                                          errorWidget: (context, url, error) => Container(
+                                            width: 80,
+                                            height: 80,
+                                            color: context.mutedColor,
+                                            child: const Icon(Iconsax.user),
+                                          ),
+                                        )
+                                      : Container(
+                                          width: 80,
+                                          height: 80,
+                                          color: context.mutedColor,
+                                          child: const Icon(Iconsax.user, size: 40),
+                                        ),
+                                ),
+                              ),
+                            ),
+                            // Zoom icon indicator (only shown if profile photo exists)
+                            if (profilePhoto != null)
+                              Positioned(
+                                bottom: 0,
+                                right: 0,
+                                child: Container(
+                                  width: 28,
+                                  height: 28,
+                                  decoration: BoxDecoration(
+                                    color: AppColors.primary,
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color: context.backgroundColor,
+                                      width: 2,
+                                    ),
+                                  ),
+                                  child: const Icon(
+                                    Iconsax.eye,
+                                    color: Colors.white,
+                                    size: 16,
+                                  ),
+                                ),
+                              ),
+                          ],
                         ),
                       ).animate(delay: 100.ms).fadeIn(duration: 500.ms).scale(
                         begin: const Offset(0.8, 0.8),
@@ -351,7 +413,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
             }
           }
         } else if (item.route.isNotEmpty) {
-          context.push(item.route);
+          // Navigate to the route
+          await context.push(item.route);
+          // Refresh profile when returning from settings or any route
+          if (mounted && item.route == '/settings') {
+            // Small delay to ensure settings screen has finished updating
+            await Future.delayed(const Duration(milliseconds: 300));
+            _loadUserData(forceRefresh: true);
+          }
         }
       },
       child: Container(
@@ -426,6 +495,49 @@ class _MenuItem {
     this.isLogout = false,
     this.isThemeToggle = false,
   });
+}
+
+class _FullScreenImageViewer extends StatelessWidget {
+  final String imageUrl;
+
+  const _FullScreenImageViewer({required this.imageUrl});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Iconsax.arrow_left, color: Colors.white),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+      ),
+      body: Center(
+        child: InteractiveViewer(
+          minScale: 0.5,
+          maxScale: 4.0,
+          child: CachedNetworkImage(
+            imageUrl: imageUrl,
+            fit: BoxFit.contain,
+            placeholder: (context, url) => const Center(
+              child: CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+              ),
+            ),
+            errorWidget: (context, url, error) => const Center(
+              child: Icon(
+                Iconsax.image,
+                color: Colors.white,
+                size: 80,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 

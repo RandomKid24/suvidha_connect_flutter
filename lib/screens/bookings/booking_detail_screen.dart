@@ -49,7 +49,7 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
   }
 
   Future<void> _loadUserRole() async {
-    final result = await ApiService.getCurrentUserInfo();
+    final result = await ApiService.getCurrentUserInfo(forceRefresh: false);
     if (result['success'] == true) {
       setState(() {
         _userRole = result['data']?['role'];
@@ -73,7 +73,7 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
     }
 
     // Get all bookings and find the one we need
-    final result = await ApiService.getUserBookings();
+    final result = await ApiService.getUserBookings(forceRefresh: false);
     
     if (mounted) {
       setState(() {
@@ -104,7 +104,7 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
     final bId = int.tryParse(widget.bookingId);
     if (bId == null) return;
 
-    final result = await ApiService.getUserBookings();
+    final result = await ApiService.getUserBookings(forceRefresh: false);
     
     if (mounted && result['success'] == true) {
       final bookings = result['data'] as List;
@@ -231,7 +231,7 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
     final bookingPrice = bookingPriceNullable;
 
     // Check wallet balance first
-    final walletResult = await ApiService.getWalletBalance();
+    final walletResult = await ApiService.getWalletBalance(forceRefresh: false);
     if (walletResult['success'] == true) {
       final balance = walletResult['balance']?.toDouble() ?? 0.0;
       if (balance < bookingPrice) {
@@ -397,7 +397,12 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
                   : _booking == null
                     ? const Center(child: Text('Booking not found'))
                     : SingleChildScrollView(
-                        padding: const EdgeInsets.all(16),
+                        padding: EdgeInsets.only(
+                          left: 16,
+                          right: 16,
+                          top: 16,
+                          bottom: 16 + MediaQuery.of(context).padding.bottom,
+                        ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [

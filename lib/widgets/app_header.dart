@@ -40,10 +40,10 @@ class _AppHeaderState extends State<AppHeader> {
     _loadWalletBalance();
   }
   
-  Future<void> _loadWalletBalance() async {
+  Future<void> _loadWalletBalance({bool forceRefresh = false}) async {
     try {
       setState(() => _isLoadingWallet = true);
-      final result = await ApiService.getWalletBalance();
+      final result = await ApiService.getWalletBalance(forceRefresh: forceRefresh);
       if (result['success'] == true && mounted) {
         setState(() {
           _walletBalance = result['balance']?.toDouble();
@@ -62,8 +62,8 @@ class _AppHeaderState extends State<AppHeader> {
 
   Future<void> _loadUserLocation() async {
     try {
-      // Try to get default saved address first
-      final addressesResult = await ApiService.getSavedAddresses();
+      // Try to get default saved address first (use cache by default)
+      final addressesResult = await ApiService.getSavedAddresses(forceRefresh: false);
       if (addressesResult['success'] == true) {
         final addresses = addressesResult['data'] as List;
         if (addresses.isNotEmpty) {
@@ -107,8 +107,8 @@ class _AppHeaderState extends State<AppHeader> {
         }
       }
       
-      // If no saved address, try to get from user profile
-      final userResult = await ApiService.getCurrentUserInfo();
+      // If no saved address, try to get from user profile (use cache by default)
+      final userResult = await ApiService.getCurrentUserInfo(forceRefresh: false);
       if (userResult['success'] == true && mounted) {
         final userData = userResult['data'];
         final location = userData['location_string'] ?? userData['address'];
@@ -322,7 +322,7 @@ class _WalletDialogState extends State<WalletDialog> {
   
   Future<void> _loadBalance() async {
     setState(() => _isLoading = true);
-    final result = await ApiService.getWalletBalance();
+    final result = await ApiService.getWalletBalance(forceRefresh: false);
     if (mounted) {
       setState(() {
         _balance = result['balance']?.toDouble();

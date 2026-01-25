@@ -3,6 +3,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'cache_service.dart';
 
 class ApiService {
   // Update this based on your environment:
@@ -309,9 +310,20 @@ class ApiService {
   }
   
   // Service Categories
-  static Future<Map<String, dynamic>> getServiceCategories() async {
+  static Future<Map<String, dynamic>> getServiceCategories({bool forceRefresh = false}) async {
     try {
-      print('Fetching service categories');
+      final cacheKey = CacheService.getCacheKey('services/categories/');
+      
+      // Check cache first unless force refresh
+      if (!forceRefresh) {
+        final cachedData = await CacheService.getCache(cacheKey);
+        if (cachedData != null) {
+          print('📦 Using cached service categories');
+          return {'success': true, 'data': cachedData, 'fromCache': true};
+        }
+      }
+      
+      print('Fetching service categories from API');
       final response = await http.get(
         Uri.parse('$baseUrl/services/categories/'),
         headers: await _getHeaders(),
@@ -349,6 +361,9 @@ class ApiService {
           print('   ${i + 1}. ID: ${service['id']}, Name: ${service['name']}, Active: ${service['is_active']}');
         }
         
+        // Cache the response (cache for 2 hours as categories don't change often)
+        await CacheService.setCache(cacheKey, responseData, expiration: const Duration(hours: 2));
+        
         return {'success': true, 'data': responseData};
       } else {
         try {
@@ -359,9 +374,23 @@ class ApiService {
       }
     } on TimeoutException catch (e) {
       print('Get categories timeout: $e');
+      // Try to return cached data on timeout
+      final cacheKey = CacheService.getCacheKey('services/categories/');
+      final cachedData = await CacheService.getCache(cacheKey);
+      if (cachedData != null) {
+        print('📦 Returning cached data due to timeout');
+        return {'success': true, 'data': cachedData, 'fromCache': true};
+      }
       return {'success': false, 'error': {'message': 'Request timed out. Please check your connection.'}};
     } on SocketException catch (e) {
       print('Get categories network error: $e');
+      // Try to return cached data on network error
+      final cacheKey = CacheService.getCacheKey('services/categories/');
+      final cachedData = await CacheService.getCache(cacheKey);
+      if (cachedData != null) {
+        print('📦 Returning cached data due to network error');
+        return {'success': true, 'data': cachedData, 'fromCache': true};
+      }
       return {'success': false, 'error': {'message': 'Network error. Please check your internet connection.'}};
     } catch (e) {
       print('Get categories error: $e');
@@ -585,9 +614,20 @@ class ApiService {
   }
   
   // Check provider status
-  static Future<Map<String, dynamic>> getProviderStatus() async {
+  static Future<Map<String, dynamic>> getProviderStatus({bool forceRefresh = false}) async {
     try {
-      print('Checking provider status');
+      final cacheKey = CacheService.getCacheKey('providers/status/');
+      
+      // Check cache first unless force refresh
+      if (!forceRefresh) {
+        final cachedData = await CacheService.getCache(cacheKey);
+        if (cachedData != null) {
+          print('📦 Using cached provider status');
+          return {'success': true, 'data': cachedData, 'fromCache': true};
+        }
+      }
+      
+      print('Checking provider status from API');
       final response = await http.get(
         Uri.parse('$baseUrl/providers/status/'),
         headers: await _getHeaders(includeAuth: true),
@@ -601,7 +641,12 @@ class ApiService {
       print('Status response: ${response.statusCode}');
       
       if (response.statusCode == 200) {
-        return {'success': true, 'data': jsonDecode(response.body)};
+        final data = jsonDecode(response.body);
+        
+        // Cache the response (cache for 5 minutes)
+        await CacheService.setCache(cacheKey, data, expiration: const Duration(minutes: 5));
+        
+        return {'success': true, 'data': data};
       } else {
         try {
           return {'success': false, 'error': jsonDecode(response.body)};
@@ -611,9 +656,23 @@ class ApiService {
       }
     } on TimeoutException catch (e) {
       print('Status check timeout: $e');
+      // Try to return cached data on timeout
+      final cacheKey = CacheService.getCacheKey('providers/status/');
+      final cachedData = await CacheService.getCache(cacheKey);
+      if (cachedData != null) {
+        print('📦 Returning cached provider status due to timeout');
+        return {'success': true, 'data': cachedData, 'fromCache': true};
+      }
       return {'success': false, 'error': {'message': 'Request timed out. Please check your connection.'}};
     } on SocketException catch (e) {
       print('Status check network error: $e');
+      // Try to return cached data on network error
+      final cacheKey = CacheService.getCacheKey('providers/status/');
+      final cachedData = await CacheService.getCache(cacheKey);
+      if (cachedData != null) {
+        print('📦 Returning cached provider status due to network error');
+        return {'success': true, 'data': cachedData, 'fromCache': true};
+      }
       return {'success': false, 'error': {'message': 'Network error. Please check your internet connection.'}};
     } catch (e) {
       print('Status check error: $e');
@@ -622,9 +681,20 @@ class ApiService {
   }
 
   // Get provider profile
-  static Future<Map<String, dynamic>> getProviderProfile() async {
+  static Future<Map<String, dynamic>> getProviderProfile({bool forceRefresh = false}) async {
     try {
-      print('Fetching provider profile');
+      final cacheKey = CacheService.getCacheKey('providers/my_profile/');
+      
+      // Check cache first unless force refresh
+      if (!forceRefresh) {
+        final cachedData = await CacheService.getCache(cacheKey);
+        if (cachedData != null) {
+          print('📦 Using cached provider profile');
+          return {'success': true, 'data': cachedData, 'fromCache': true};
+        }
+      }
+      
+      print('Fetching provider profile from API');
       final response = await http.get(
         Uri.parse('$baseUrl/providers/my_profile/'),
         headers: await _getHeaders(includeAuth: true),
@@ -638,7 +708,12 @@ class ApiService {
       print('Provider profile response: ${response.statusCode}');
       
       if (response.statusCode == 200) {
-        return {'success': true, 'data': jsonDecode(response.body)};
+        final data = jsonDecode(response.body);
+        
+        // Cache the response (cache for 10 minutes)
+        await CacheService.setCache(cacheKey, data, expiration: const Duration(minutes: 10));
+        
+        return {'success': true, 'data': data};
       } else {
         try {
           return {'success': false, 'error': jsonDecode(response.body)};
@@ -648,9 +723,23 @@ class ApiService {
       }
     } on TimeoutException catch (e) {
       print('Get provider profile timeout: $e');
+      // Try to return cached data on timeout
+      final cacheKey = CacheService.getCacheKey('providers/my_profile/');
+      final cachedData = await CacheService.getCache(cacheKey);
+      if (cachedData != null) {
+        print('📦 Returning cached provider profile due to timeout');
+        return {'success': true, 'data': cachedData, 'fromCache': true};
+      }
       return {'success': false, 'error': {'message': 'Request timed out. Please check your connection.'}};
     } on SocketException catch (e) {
       print('Get provider profile network error: $e');
+      // Try to return cached data on network error
+      final cacheKey = CacheService.getCacheKey('providers/my_profile/');
+      final cachedData = await CacheService.getCache(cacheKey);
+      if (cachedData != null) {
+        print('📦 Returning cached provider profile due to network error');
+        return {'success': true, 'data': cachedData, 'fromCache': true};
+      }
       return {'success': false, 'error': {'message': 'Network error. Please check your internet connection.'}};
     } catch (e) {
       print('Get provider profile error: $e');
@@ -747,8 +836,22 @@ class ApiService {
   }
 
   // Get current user info from API (refresh from server)
-  static Future<Map<String, dynamic>> getCurrentUserInfo() async {
+  static Future<Map<String, dynamic>> getCurrentUserInfo({bool forceRefresh = false}) async {
     try {
+      final cacheKey = CacheService.getCacheKey('auth/users/me/');
+      
+      // Check cache first unless force refresh
+      if (!forceRefresh) {
+        final cachedData = await CacheService.getCache(cacheKey);
+        if (cachedData != null) {
+          print('📦 Using cached user info');
+          // Also update SharedPreferences for backward compatibility
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('user_data', jsonEncode(cachedData));
+          return {'success': true, 'data': cachedData, 'fromCache': true};
+        }
+      }
+      
       final response = await http.get(
         Uri.parse('$baseUrl/auth/users/me/'),
         headers: await _getHeaders(includeAuth: true),
@@ -757,9 +860,12 @@ class ApiService {
       if (response.statusCode == 200) {
         final userData = jsonDecode(response.body);
         
-        // Update cached user data
+        // Update cached user data in both SharedPreferences and CacheService
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('user_data', jsonEncode(userData));
+        
+        // Cache the response (cache for 10 minutes)
+        await CacheService.setCache(cacheKey, userData, expiration: const Duration(minutes: 10));
         
         return {'success': true, 'data': userData};
       } else {
@@ -769,9 +875,23 @@ class ApiService {
       }
     } on TimeoutException catch (e) {
       print('Get user info timeout: $e');
+      // Try to return cached data on timeout
+      final cacheKey = CacheService.getCacheKey('auth/users/me/');
+      final cachedData = await CacheService.getCache(cacheKey);
+      if (cachedData != null) {
+        print('📦 Returning cached user info due to timeout');
+        return {'success': true, 'data': cachedData, 'fromCache': true};
+      }
       return {'success': false, 'error': {'message': 'Request timed out. Please check your internet connection.'}};
     } on SocketException catch (e) {
       print('Get user info network error: $e');
+      // Try to return cached data on network error
+      final cacheKey = CacheService.getCacheKey('auth/users/me/');
+      final cachedData = await CacheService.getCache(cacheKey);
+      if (cachedData != null) {
+        print('📦 Returning cached user info due to network error');
+        return {'success': true, 'data': cachedData, 'fromCache': true};
+      }
       return {'success': false, 'error': {'message': 'Network error. Please check your internet connection.'}};
     } catch (e) {
       print('Get user info error: $e');
@@ -788,12 +908,22 @@ class ApiService {
       //   headers: await _getHeaders(includeAuth: true),
       // );
       
+      // Clear all cached data
+      await CacheService.clearAllCache();
+      print('🗑️ All cached data cleared');
+      
       // Clear local session
       await _clearSession();
       print('User logged out successfully');
     } catch (e) {
       print('Logout error: $e');
-      // Still clear local session even if API call fails
+      // Still clear cache and session even if API call fails
+      try {
+        await CacheService.clearAllCache();
+        print('🗑️ All cached data cleared (on error)');
+      } catch (cacheError) {
+        print('Error clearing cache: $cacheError');
+      }
       await _clearSession();
     }
   }
@@ -808,19 +938,33 @@ class ApiService {
   }
   
   // Get reviews (optionally filtered by provider or limited count)
-  static Future<Map<String, dynamic>> getReviews({int? providerId, int? limit}) async {
+  static Future<Map<String, dynamic>> getReviews({int? providerId, int? limit, bool forceRefresh = false}) async {
     try {
+      final params = <String, dynamic>{};
+      if (providerId != null) params['provider'] = providerId;
+      if (limit != null) params['limit'] = limit;
+      final cacheKey = CacheService.getCacheKey('reviews/', params: params);
+      
+      // Check cache first unless force refresh
+      if (!forceRefresh) {
+        final cachedData = await CacheService.getCache(cacheKey);
+        if (cachedData != null) {
+          print('📦 Using cached reviews${providerId != null ? " for provider: $providerId" : ""}');
+          return {'success': true, 'data': cachedData, 'fromCache': true};
+        }
+      }
+      
       print('Fetching reviews${providerId != null ? " for provider: $providerId" : ""}');
       String url = '$baseUrl/reviews/';
-      List<String> params = [];
+      List<String> urlParams = [];
       if (providerId != null) {
-        params.add('provider=$providerId');
+        urlParams.add('provider=$providerId');
       }
       if (limit != null) {
-        params.add('limit=$limit');
+        urlParams.add('limit=$limit');
       }
-      if (params.isNotEmpty) {
-        url += '?${params.join("&")}';
+      if (urlParams.isNotEmpty) {
+        url += '?${urlParams.join("&")}';
       }
       
       final response = await http.get(
@@ -845,6 +989,10 @@ class ApiService {
         }
         
         print('✅ Loaded ${reviewsList.length} reviews');
+        
+        // Cache the response (cache for 30 minutes)
+        await CacheService.setCache(cacheKey, reviewsList, expiration: const Duration(minutes: 30));
+        
         return {'success': true, 'data': reviewsList};
       } else {
         try {
@@ -855,9 +1003,29 @@ class ApiService {
       }
     } on TimeoutException catch (e) {
       print('Get reviews timeout: $e');
+      // Try to return cached data on timeout
+      final params = <String, dynamic>{};
+      if (providerId != null) params['provider'] = providerId;
+      if (limit != null) params['limit'] = limit;
+      final cacheKey = CacheService.getCacheKey('reviews/', params: params);
+      final cachedData = await CacheService.getCache(cacheKey);
+      if (cachedData != null) {
+        print('📦 Returning cached reviews due to timeout');
+        return {'success': true, 'data': cachedData, 'fromCache': true};
+      }
       return {'success': false, 'error': {'message': 'Request timed out. Please check your connection.'}};
     } on SocketException catch (e) {
       print('Get reviews network error: $e');
+      // Try to return cached data on network error
+      final params = <String, dynamic>{};
+      if (providerId != null) params['provider'] = providerId;
+      if (limit != null) params['limit'] = limit;
+      final cacheKey = CacheService.getCacheKey('reviews/', params: params);
+      final cachedData = await CacheService.getCache(cacheKey);
+      if (cachedData != null) {
+        print('📦 Returning cached reviews due to network error');
+        return {'success': true, 'data': cachedData, 'fromCache': true};
+      }
       return {'success': false, 'error': {'message': 'Network error. Please check your internet connection.'}};
     } catch (e) {
       print('Get reviews error: $e');
@@ -865,10 +1033,14 @@ class ApiService {
     }
   }
   
-  // Create a review
-  static Future<Map<String, dynamic>> createReview(Map<String, dynamic> reviewData) async {
+  // Create a review (with optimistic update support)
+  static Future<Map<String, dynamic>> createReview(Map<String, dynamic> reviewData, {Function(Map<String, dynamic>)? onOptimisticUpdate, Function()? onError}) async {
     try {
       print('📝 Creating review: $reviewData');
+      
+      // Invalidate related caches
+      await CacheService.invalidateCachePattern('reviews/');
+      
       final response = await http.post(
         Uri.parse('$baseUrl/reviews/create_review/'),
         headers: await _getHeaders(includeAuth: true),
@@ -891,27 +1063,44 @@ class ApiService {
         try {
           final errorData = jsonDecode(response.body);
           print('❌ Review creation error: $errorData');
+          // Call error callback if provided
+          if (onError != null) onError();
           return {'success': false, 'error': errorData};
         } catch (e) {
+          if (onError != null) onError();
           return {'success': false, 'error': {'message': response.body}};
         }
       }
     } on TimeoutException catch (e) {
       print('⏱️ Create review timeout: $e');
+      if (onError != null) onError();
       return {'success': false, 'error': {'message': 'Request timed out. Please check your connection.'}};
     } on SocketException catch (e) {
       print('🌐 Create review network error: $e');
+      if (onError != null) onError();
       return {'success': false, 'error': {'message': 'Network error. Please check your internet connection.'}};
     } catch (e) {
       print('💥 Create review error: $e');
+      if (onError != null) onError();
       return {'success': false, 'error': {'message': e.toString()}};
     }
   }
   
   // Get notifications
-  static Future<Map<String, dynamic>> getNotifications() async {
+  static Future<Map<String, dynamic>> getNotifications({bool forceRefresh = false}) async {
     try {
-      print('📬 Fetching notifications');
+      final cacheKey = CacheService.getCacheKey('notifications/');
+      
+      // Check cache first unless force refresh
+      if (!forceRefresh) {
+        final cachedData = await CacheService.getCache(cacheKey);
+        if (cachedData != null) {
+          print('📦 Using cached notifications');
+          return {'success': true, 'data': cachedData, 'fromCache': true};
+        }
+      }
+      
+      print('📬 Fetching notifications from API');
       final headers = await _getHeaders(includeAuth: true);
       print('📬 Notifications URL: $baseUrl/notifications/');
       print('📬 Headers: $headers');
@@ -942,6 +1131,10 @@ class ApiService {
         if (notificationsList.isNotEmpty) {
           print('📋 First notification: ${notificationsList[0]}');
         }
+        
+        // Cache the response (cache for 5 minutes)
+        await CacheService.setCache(cacheKey, notificationsList, expiration: const Duration(minutes: 5));
+        
         return {'success': true, 'data': notificationsList};
       } else {
         print('❌ Notifications error: ${response.body}');
@@ -953,9 +1146,23 @@ class ApiService {
       }
     } on TimeoutException catch (e) {
       print('⏱️ Get notifications timeout: $e');
+      // Try to return cached data on timeout
+      final cacheKey = CacheService.getCacheKey('notifications/');
+      final cachedData = await CacheService.getCache(cacheKey);
+      if (cachedData != null) {
+        print('📦 Returning cached notifications due to timeout');
+        return {'success': true, 'data': cachedData, 'fromCache': true};
+      }
       return {'success': false, 'error': {'message': 'Request timed out. Please check your connection.'}};
     } on SocketException catch (e) {
       print('🌐 Get notifications network error: $e');
+      // Try to return cached data on network error
+      final cacheKey = CacheService.getCacheKey('notifications/');
+      final cachedData = await CacheService.getCache(cacheKey);
+      if (cachedData != null) {
+        print('📦 Returning cached notifications due to network error');
+        return {'success': true, 'data': cachedData, 'fromCache': true};
+      }
       return {'success': false, 'error': {'message': 'Network error. Please check your internet connection.'}};
     } catch (e) {
       print('❌ Get notifications error: $e');
@@ -972,6 +1179,10 @@ class ApiService {
       print('💾 Updating profile');
       print('   Data: $data');
       print('   Profile photo: ${profilePhoto != null ? profilePhoto.path : "none"}');
+      
+      // Invalidate user info and provider profile caches
+      await CacheService.invalidateCachePattern('auth/users/me/');
+      await CacheService.invalidateCachePattern('providers/my_profile/');
       
       // If profile photo is provided, use multipart form data
       if (profilePhoto != null) {
@@ -1114,8 +1325,19 @@ class ApiService {
   }
   
   // Get provider details by ID
-  static Future<Map<String, dynamic>> getProviderDetails(int providerId) async {
+  static Future<Map<String, dynamic>> getProviderDetails(int providerId, {bool forceRefresh = false}) async {
     try {
+      final cacheKey = CacheService.getCacheKey('providers/$providerId/');
+      
+      // Check cache first unless force refresh
+      if (!forceRefresh) {
+        final cachedData = await CacheService.getCache(cacheKey);
+        if (cachedData != null) {
+          print('📦 Using cached provider details for ID: $providerId');
+          return {'success': true, 'data': cachedData, 'fromCache': true};
+        }
+      }
+      
       print('🔍 Fetching provider details for ID: $providerId');
       final url = '$baseUrl/providers/$providerId/';
       print('📍 Provider details URL: $url');
@@ -1136,6 +1358,10 @@ class ApiService {
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         print('✅ Loaded provider details: ${data['name'] ?? 'Unknown'}');
+        
+        // Cache the response (cache for 1 hour)
+        await CacheService.setCache(cacheKey, data, expiration: const Duration(hours: 1));
+        
         return {'success': true, 'data': data};
       } else {
         final errorBody = response.body;
@@ -1149,9 +1375,23 @@ class ApiService {
       }
     } on TimeoutException catch (e) {
       print('⏱️ Get provider details timeout: $e');
+      // Try to return cached data on timeout
+      final cacheKey = CacheService.getCacheKey('providers/$providerId/');
+      final cachedData = await CacheService.getCache(cacheKey);
+      if (cachedData != null) {
+        print('📦 Returning cached provider details due to timeout');
+        return {'success': true, 'data': cachedData, 'fromCache': true};
+      }
       return {'success': false, 'error': {'message': 'Request timed out. Please check your connection.'}};
     } on SocketException catch (e) {
       print('🌐 Get provider details network error: $e');
+      // Try to return cached data on network error
+      final cacheKey = CacheService.getCacheKey('providers/$providerId/');
+      final cachedData = await CacheService.getCache(cacheKey);
+      if (cachedData != null) {
+        print('📦 Returning cached provider details due to network error');
+        return {'success': true, 'data': cachedData, 'fromCache': true};
+      }
       return {'success': false, 'error': {'message': 'Network error. Please check your internet connection.'}};
     } catch (e) {
       print('💥 Get provider details error: $e');
@@ -1159,11 +1399,14 @@ class ApiService {
     }
   }
   
-  // Create a booking
-  static Future<Map<String, dynamic>> createBooking(Map<String, dynamic> bookingData) async {
+  // Create a booking (with optimistic update support)
+  static Future<Map<String, dynamic>> createBooking(Map<String, dynamic> bookingData, {Function(Map<String, dynamic>)? onOptimisticUpdate, Function()? onError}) async {
     try {
       print('📝 Creating booking...');
       print('   Booking data: $bookingData');
+      
+      // Invalidate bookings cache
+      await CacheService.invalidateCachePattern('bookings/');
       
       final headers = await _getHeaders(includeAuth: true);
       print('   Request headers:');
@@ -1198,13 +1441,16 @@ class ApiService {
         try {
           final errorData = jsonDecode(response.body);
           print('❌ Booking creation error: $errorData');
+          if (onError != null) onError();
           return {'success': false, 'error': errorData};
         } catch (e) {
+          if (onError != null) onError();
           return {'success': false, 'error': {'message': response.body}};
         }
       }
     } on TimeoutException catch (e) {
       print('⏱️ Create booking timeout: $e');
+      if (onError != null) onError();
       return {'success': false, 'error': {'message': 'Request timed out. Please check your connection.'}};
     } on SocketException catch (e) {
       print('🌐 Create booking network error: $e');
@@ -1216,9 +1462,20 @@ class ApiService {
   }
   
   // Get user bookings (for customers and providers)
-  static Future<Map<String, dynamic>> getUserBookings() async {
+  static Future<Map<String, dynamic>> getUserBookings({bool forceRefresh = false}) async {
     try {
-      print('📋 Fetching user bookings');
+      final cacheKey = CacheService.getCacheKey('bookings/');
+      
+      // Check cache first unless force refresh
+      if (!forceRefresh) {
+        final cachedData = await CacheService.getCache(cacheKey);
+        if (cachedData != null) {
+          print('📦 Using cached user bookings');
+          return {'success': true, 'data': cachedData, 'fromCache': true};
+        }
+      }
+      
+      print('📋 Fetching user bookings from API');
       final response = await http.get(
         Uri.parse('$baseUrl/bookings/'),
         headers: await _getHeaders(includeAuth: true),
@@ -1242,6 +1499,10 @@ class ApiService {
         }
         
         print('✅ Loaded ${bookingsList.length} bookings');
+        
+        // Cache the response (cache for 5 minutes as bookings change frequently)
+        await CacheService.setCache(cacheKey, bookingsList, expiration: const Duration(minutes: 5));
+        
         return {'success': true, 'data': bookingsList};
       } else {
         try {
@@ -1252,9 +1513,23 @@ class ApiService {
       }
     } on TimeoutException catch (e) {
       print('⏱️ Get user bookings timeout: $e');
+      // Try to return cached data on timeout
+      final cacheKey = CacheService.getCacheKey('bookings/');
+      final cachedData = await CacheService.getCache(cacheKey);
+      if (cachedData != null) {
+        print('📦 Returning cached bookings due to timeout');
+        return {'success': true, 'data': cachedData, 'fromCache': true};
+      }
       return {'success': false, 'error': {'message': 'Request timed out. Please check your connection.'}};
     } on SocketException catch (e) {
       print('🌐 Get user bookings network error: $e');
+      // Try to return cached data on network error
+      final cacheKey = CacheService.getCacheKey('bookings/');
+      final cachedData = await CacheService.getCache(cacheKey);
+      if (cachedData != null) {
+        print('📦 Returning cached bookings due to network error');
+        return {'success': true, 'data': cachedData, 'fromCache': true};
+      }
       return {'success': false, 'error': {'message': 'Network error. Please check your internet connection.'}};
     } catch (e) {
       print('💥 Get user bookings error: $e');
@@ -1263,9 +1538,20 @@ class ApiService {
   }
   
   // Get provider requests (for service providers)
-  static Future<Map<String, dynamic>> getProviderRequests() async {
+  static Future<Map<String, dynamic>> getProviderRequests({bool forceRefresh = false}) async {
     try {
-      print('Fetching provider requests');
+      final cacheKey = CacheService.getCacheKey('bookings/my_requests/');
+      
+      // Check cache first unless force refresh
+      if (!forceRefresh) {
+        final cachedData = await CacheService.getCache(cacheKey);
+        if (cachedData != null) {
+          print('📦 Using cached provider requests');
+          return {'success': true, 'data': cachedData, 'fromCache': true};
+        }
+      }
+      
+      print('Fetching provider requests from API');
       final response = await http.get(
         Uri.parse('$baseUrl/bookings/my_requests/'),
         headers: await _getHeaders(includeAuth: true),
@@ -1288,6 +1574,10 @@ class ApiService {
         }
         
         print('✅ Loaded ${requestsList.length} requests');
+        
+        // Cache the response (cache for 2 minutes as requests change frequently)
+        await CacheService.setCache(cacheKey, requestsList, expiration: const Duration(minutes: 2));
+        
         return {'success': true, 'data': requestsList};
       } else {
         try {
@@ -1298,9 +1588,23 @@ class ApiService {
       }
     } on TimeoutException catch (e) {
       print('Get provider requests timeout: $e');
+      // Try to return cached data on timeout
+      final cacheKey = CacheService.getCacheKey('bookings/my_requests/');
+      final cachedData = await CacheService.getCache(cacheKey);
+      if (cachedData != null) {
+        print('📦 Returning cached requests due to timeout');
+        return {'success': true, 'data': cachedData, 'fromCache': true};
+      }
       return {'success': false, 'error': {'message': 'Request timed out. Please check your connection.'}};
     } on SocketException catch (e) {
       print('Get provider requests network error: $e');
+      // Try to return cached data on network error
+      final cacheKey = CacheService.getCacheKey('bookings/my_requests/');
+      final cachedData = await CacheService.getCache(cacheKey);
+      if (cachedData != null) {
+        print('📦 Returning cached requests due to network error');
+        return {'success': true, 'data': cachedData, 'fromCache': true};
+      }
       return {'success': false, 'error': {'message': 'Network error. Please check your internet connection.'}};
     } catch (e) {
       print('Get provider requests error: $e');
@@ -1311,6 +1615,9 @@ class ApiService {
   // Accept a booking request
   static Future<Map<String, dynamic>> startNegotiation(int bookingId) async {
     try {
+      // Invalidate bookings cache
+      await CacheService.invalidateCachePattern('bookings/');
+      
       final headers = await _getHeaders(includeAuth: true);
       final response = await http.post(
         Uri.parse('$baseUrl/bookings/$bookingId/start_negotiation/'),
@@ -1333,6 +1640,10 @@ class ApiService {
   static Future<Map<String, dynamic>> acceptBooking(int bookingId) async {
     try {
       print('Accepting booking: $bookingId');
+      
+      // Invalidate bookings cache
+      await CacheService.invalidateCachePattern('bookings/');
+      
       final response = await http.post(
         Uri.parse('$baseUrl/bookings/$bookingId/accept/'),
         headers: await _getHeaders(includeAuth: true),
@@ -1363,6 +1674,10 @@ class ApiService {
   static Future<Map<String, dynamic>> completeBooking(int bookingId) async {
     try {
       print('Completing booking: $bookingId');
+      
+      // Invalidate bookings cache
+      await CacheService.invalidateCachePattern('bookings/');
+      
       final response = await http.post(
         Uri.parse('$baseUrl/bookings/$bookingId/complete/'),
         headers: await _getHeaders(includeAuth: true),
@@ -1389,10 +1704,14 @@ class ApiService {
     }
   }
   
-  // Cancel a booking
-  static Future<Map<String, dynamic>> cancelBooking(int bookingId) async {
+  // Cancel a booking (with optimistic update support)
+  static Future<Map<String, dynamic>> cancelBooking(int bookingId, {Function(Map<String, dynamic>)? onOptimisticUpdate, Function()? onError}) async {
     try {
       print('Cancelling booking: $bookingId');
+      
+      // Invalidate bookings cache
+      await CacheService.invalidateCachePattern('bookings/');
+      
       final response = await http.post(
         Uri.parse('$baseUrl/bookings/$bookingId/cancel/'),
         headers: await _getHeaders(includeAuth: true),
@@ -1408,21 +1727,28 @@ class ApiService {
         return {'success': true, 'data': data};
       } else {
         try {
+          if (onError != null) onError();
           return {'success': false, 'error': jsonDecode(response.body)};
         } catch (e) {
+          if (onError != null) onError();
           return {'success': false, 'error': {'message': response.body}};
         }
       }
     } catch (e) {
       print('Cancel booking error: $e');
+      if (onError != null) onError();
       return {'success': false, 'error': {'message': e.toString()}};
     }
   }
   
-  // Delete a booking (for removing from history)
-  static Future<Map<String, dynamic>> deleteBooking(int bookingId) async {
+  // Delete a booking (for removing from history) (with optimistic update support)
+  static Future<Map<String, dynamic>> deleteBooking(int bookingId, {Function(Map<String, dynamic>)? onOptimisticUpdate, Function()? onError}) async {
     try {
       print('🗑️ Deleting booking: $bookingId');
+      
+      // Invalidate bookings cache
+      await CacheService.invalidateCachePattern('bookings/');
+      
       final response = await http.delete(
         Uri.parse('$baseUrl/bookings/$bookingId/'),
         headers: await _getHeaders(includeAuth: true),
@@ -1442,20 +1768,25 @@ class ApiService {
         try {
           final errorData = jsonDecode(response.body);
           print('❌ Delete booking error: $errorData');
+          if (onError != null) onError();
           return {'success': false, 'error': errorData};
         } catch (e) {
           print('❌ Delete booking error (parse): ${response.body}');
+          if (onError != null) onError();
           return {'success': false, 'error': {'message': response.body}};
         }
       }
     } on TimeoutException catch (e) {
       print('⏱️ Delete booking timeout: $e');
+      if (onError != null) onError();
       return {'success': false, 'error': {'message': 'Request timed out. Please check your connection.'}};
     } on SocketException catch (e) {
       print('🌐 Delete booking network error: $e');
+      if (onError != null) onError();
       return {'success': false, 'error': {'message': 'Network error. Please check your internet connection.'}};
     } catch (e) {
       print('💥 Delete booking error: $e');
+      if (onError != null) onError();
       return {'success': false, 'error': {'message': e.toString()}};
     }
   }
@@ -1464,6 +1795,10 @@ class ApiService {
   static Future<Map<String, dynamic>> rejectBooking(int bookingId) async {
     try {
       print('Rejecting booking: $bookingId');
+      
+      // Invalidate bookings cache
+      await CacheService.invalidateCachePattern('bookings/');
+      
       final response = await http.post(
         Uri.parse('$baseUrl/bookings/$bookingId/reject/'),
         headers: await _getHeaders(includeAuth: true),
@@ -1494,6 +1829,10 @@ class ApiService {
   static Future<Map<String, dynamic>> proposePrice(int bookingId, double price) async {
     try {
       print('Proposing price: $price for booking: $bookingId');
+      
+      // Invalidate bookings cache
+      await CacheService.invalidateCachePattern('bookings/');
+      
       final response = await http.post(
         Uri.parse('$baseUrl/bookings/$bookingId/propose_price/'),
         headers: await _getHeaders(includeAuth: true),
@@ -1525,6 +1864,10 @@ class ApiService {
   static Future<Map<String, dynamic>> acceptPrice(int bookingId) async {
     try {
       print('Accepting price for booking: $bookingId');
+      
+      // Invalidate bookings cache
+      await CacheService.invalidateCachePattern('bookings/');
+      
       final response = await http.post(
         Uri.parse('$baseUrl/bookings/$bookingId/accept_price/'),
         headers: await _getHeaders(includeAuth: true),
@@ -1552,9 +1895,20 @@ class ApiService {
   }
   
   // Get saved addresses
-  static Future<Map<String, dynamic>> getSavedAddresses() async {
+  static Future<Map<String, dynamic>> getSavedAddresses({bool forceRefresh = false}) async {
     try {
-      print('📍 Fetching saved addresses');
+      final cacheKey = CacheService.getCacheKey('addresses/');
+      
+      // Check cache first unless force refresh
+      if (!forceRefresh) {
+        final cachedData = await CacheService.getCache(cacheKey);
+        if (cachedData != null) {
+          print('📦 Using cached saved addresses');
+          return {'success': true, 'data': cachedData, 'fromCache': true};
+        }
+      }
+      
+      print('📍 Fetching saved addresses from API');
       final response = await http.get(
         Uri.parse('$baseUrl/addresses/'),
         headers: await _getHeaders(includeAuth: true),
@@ -1577,6 +1931,10 @@ class ApiService {
         }
         
         print('✅ Loaded ${addressesList.length} saved addresses');
+        
+        // Cache the response (cache for 10 minutes)
+        await CacheService.setCache(cacheKey, addressesList, expiration: const Duration(minutes: 10));
+        
         return {'success': true, 'data': addressesList};
       } else {
         try {
@@ -1587,9 +1945,23 @@ class ApiService {
       }
     } on TimeoutException catch (e) {
       print('⏱️ Get saved addresses timeout: $e');
+      // Try to return cached data on timeout
+      final cacheKey = CacheService.getCacheKey('addresses/');
+      final cachedData = await CacheService.getCache(cacheKey);
+      if (cachedData != null) {
+        print('📦 Returning cached addresses due to timeout');
+        return {'success': true, 'data': cachedData, 'fromCache': true};
+      }
       return {'success': false, 'error': {'message': 'Request timed out. Please check your connection.'}};
     } on SocketException catch (e) {
       print('🌐 Get saved addresses network error: $e');
+      // Try to return cached data on network error
+      final cacheKey = CacheService.getCacheKey('addresses/');
+      final cachedData = await CacheService.getCache(cacheKey);
+      if (cachedData != null) {
+        print('📦 Returning cached addresses due to network error');
+        return {'success': true, 'data': cachedData, 'fromCache': true};
+      }
       return {'success': false, 'error': {'message': 'Network error. Please check your internet connection.'}};
     } catch (e) {
       print('💥 Get saved addresses error: $e');
@@ -1601,6 +1973,10 @@ class ApiService {
   static Future<Map<String, dynamic>> createSavedAddress(Map<String, dynamic> addressData) async {
     try {
       print('📝 Creating saved address: $addressData');
+      
+      // Invalidate addresses cache
+      await CacheService.invalidateCachePattern('addresses/');
+      
       final response = await http.post(
         Uri.parse('$baseUrl/addresses/'),
         headers: await _getHeaders(includeAuth: true),
@@ -1644,6 +2020,10 @@ class ApiService {
   static Future<Map<String, dynamic>> deleteSavedAddress(int addressId) async {
     try {
       print('🗑️ Deleting saved address: $addressId');
+      
+      // Invalidate addresses cache
+      await CacheService.invalidateCachePattern('addresses/');
+      
       final response = await http.delete(
         Uri.parse('$baseUrl/addresses/$addressId/'),
         headers: await _getHeaders(includeAuth: true),
@@ -1688,9 +2068,34 @@ class ApiService {
     bool? availableOnly,
     String? sortBy, // 'price_low' or 'price_high'
     int? page, // Page number for pagination
+    bool forceRefresh = false,
   }) async {
     try {
-      print('Fetching providers with filters');
+      // Build cache key from parameters
+      final params = <String, dynamic>{
+        if (serviceCategoryId != null) 'service': serviceCategoryId,
+        if (searchQuery != null && searchQuery.isNotEmpty) 'search': searchQuery,
+        if (latitude != null) 'latitude': latitude,
+        if (longitude != null) 'longitude': longitude,
+        if (radius != null) 'radius': radius,
+        if (minPrice != null) 'min_price': minPrice,
+        if (maxPrice != null) 'max_price': maxPrice,
+        if (availableOnly == true) 'available_only': true,
+        if (sortBy != null && sortBy.isNotEmpty) 'sort_by': sortBy,
+        if (page != null) 'page': page,
+      };
+      final cacheKey = CacheService.getCacheKey('providers/', params: params);
+      
+      // Check cache first unless force refresh
+      if (!forceRefresh) {
+        final cachedData = await CacheService.getCache(cacheKey);
+        if (cachedData != null) {
+          print('📦 Using cached providers');
+          return {'success': true, 'data': cachedData, 'fromCache': true};
+        }
+      }
+      
+      print('Fetching providers with filters from API');
       final uri = Uri.parse('$baseUrl/providers/');
       final queryParams = <String, String>{};
       
@@ -1749,6 +2154,10 @@ class ApiService {
         }
         
         print('✅ Loaded ${providersList.length} providers');
+        
+        // Cache the response (cache for 5 minutes as providers can change)
+        await CacheService.setCache(cacheKey, providersList, expiration: const Duration(minutes: 5));
+        
         return {'success': true, 'data': providersList};
       } else {
         try {
@@ -1759,9 +2168,47 @@ class ApiService {
       }
     } on TimeoutException catch (e) {
       print('Get providers timeout: $e');
+      // Try to return cached data on timeout
+      final params = <String, dynamic>{
+        if (serviceCategoryId != null) 'service': serviceCategoryId,
+        if (searchQuery != null && searchQuery.isNotEmpty) 'search': searchQuery,
+        if (latitude != null) 'latitude': latitude,
+        if (longitude != null) 'longitude': longitude,
+        if (radius != null) 'radius': radius,
+        if (minPrice != null) 'min_price': minPrice,
+        if (maxPrice != null) 'max_price': maxPrice,
+        if (availableOnly == true) 'available_only': true,
+        if (sortBy != null && sortBy.isNotEmpty) 'sort_by': sortBy,
+        if (page != null) 'page': page,
+      };
+      final cacheKey = CacheService.getCacheKey('providers/', params: params);
+      final cachedData = await CacheService.getCache(cacheKey);
+      if (cachedData != null) {
+        print('📦 Returning cached providers due to timeout');
+        return {'success': true, 'data': cachedData, 'fromCache': true};
+      }
       return {'success': false, 'error': {'message': 'Request timed out. Please check your connection.'}};
     } on SocketException catch (e) {
       print('Get providers network error: $e');
+      // Try to return cached data on network error
+      final params = <String, dynamic>{
+        if (serviceCategoryId != null) 'service': serviceCategoryId,
+        if (searchQuery != null && searchQuery.isNotEmpty) 'search': searchQuery,
+        if (latitude != null) 'latitude': latitude,
+        if (longitude != null) 'longitude': longitude,
+        if (radius != null) 'radius': radius,
+        if (minPrice != null) 'min_price': minPrice,
+        if (maxPrice != null) 'max_price': maxPrice,
+        if (availableOnly == true) 'available_only': true,
+        if (sortBy != null && sortBy.isNotEmpty) 'sort_by': sortBy,
+        if (page != null) 'page': page,
+      };
+      final cacheKey = CacheService.getCacheKey('providers/', params: params);
+      final cachedData = await CacheService.getCache(cacheKey);
+      if (cachedData != null) {
+        print('📦 Returning cached providers due to network error');
+        return {'success': true, 'data': cachedData, 'fromCache': true};
+      }
       return {'success': false, 'error': {'message': 'Network error. Please check your internet connection.'}};
     } catch (e) {
       print('Get providers error: $e');
@@ -1777,6 +2224,9 @@ class ApiService {
     String? availableEndTime,
   }) async {
     try {
+      // Invalidate provider profile and providers list caches
+      await CacheService.invalidateCachePattern('providers/');
+      
       print('Updating provider availability schedule');
       final body = <String, dynamic>{};
       if (availableFromDay != null) {
@@ -1872,6 +2322,9 @@ class ApiService {
     double? maxPrice,
   }) async {
     try {
+      // Invalidate provider profile and providers list caches
+      await CacheService.invalidateCachePattern('providers/');
+      
       print('Updating provider price range: min=$minPrice, max=$maxPrice');
       final body = <String, dynamic>{};
       if (minPrice != null) {
@@ -1911,8 +2364,19 @@ class ApiService {
   }
 
   // Get wallet balance
-  static Future<Map<String, dynamic>> getWalletBalance() async {
+  static Future<Map<String, dynamic>> getWalletBalance({bool forceRefresh = false}) async {
     try {
+      final cacheKey = CacheService.getCacheKey('wallets/balance/');
+      
+      // Check cache first unless force refresh (cache for 2 minutes as balance changes frequently)
+      if (!forceRefresh) {
+        final cachedData = await CacheService.getCache(cacheKey);
+        if (cachedData != null) {
+          print('📦 Using cached wallet balance');
+          return {'success': true, 'balance': cachedData, 'fromCache': true};
+        }
+      }
+      
       final response = await http.get(
         Uri.parse('$baseUrl/wallets/balance/'),
         headers: await _getHeaders(includeAuth: true),
@@ -1920,7 +2384,12 @@ class ApiService {
       
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        return {'success': true, 'balance': data['balance']};
+        final balance = data['balance'];
+        
+        // Cache the balance (cache for 2 minutes)
+        await CacheService.setCache(cacheKey, balance, expiration: const Duration(minutes: 2));
+        
+        return {'success': true, 'balance': balance};
       } else {
         try {
           return {'success': false, 'error': jsonDecode(response.body)};
@@ -1930,6 +2399,13 @@ class ApiService {
       }
     } catch (e) {
       print('Get wallet balance error: $e');
+      // Try to return cached data on error
+      final cacheKey = CacheService.getCacheKey('wallets/balance/');
+      final cachedData = await CacheService.getCache(cacheKey);
+      if (cachedData != null) {
+        print('📦 Returning cached wallet balance due to error');
+        return {'success': true, 'balance': cachedData, 'fromCache': true};
+      }
       return {'success': false, 'error': {'message': e.toString()}};
     }
   }
@@ -1937,6 +2413,9 @@ class ApiService {
   // Add money to wallet
   static Future<Map<String, dynamic>> addMoneyToWallet(double amount, String paymentMethod) async {
     try {
+      // Invalidate wallet balance cache
+      await CacheService.invalidateCachePattern('wallets/');
+      
       final response = await http.post(
         Uri.parse('$baseUrl/wallets/add_money/'),
         headers: await _getHeaders(includeAuth: true),
@@ -1989,6 +2468,10 @@ class ApiService {
   // Pay for booking
   static Future<Map<String, dynamic>> payBooking(int bookingId) async {
     try {
+      // Invalidate bookings and wallet caches
+      await CacheService.invalidateCachePattern('bookings/');
+      await CacheService.invalidateCachePattern('wallets/');
+      
       final headers = await _getHeaders(includeAuth: true);
       print('💳 Paying for booking: $bookingId');
       print('💳 URL: $baseUrl/bookings/$bookingId/pay/');
@@ -2022,10 +2505,21 @@ class ApiService {
   }
 
   // Bank Account Management (Provider only)
-  static Future<Map<String, dynamic>> getBankAccounts() async {
+  static Future<Map<String, dynamic>> getBankAccounts({bool forceRefresh = false}) async {
     try {
+      final cacheKey = CacheService.getCacheKey('bank-accounts/');
+      
+      // Check cache first unless force refresh
+      if (!forceRefresh) {
+        final cachedData = await CacheService.getCache(cacheKey);
+        if (cachedData != null) {
+          print('📦 Using cached bank accounts');
+          return {'success': true, 'data': cachedData, 'fromCache': true};
+        }
+      }
+      
       final headers = await _getHeaders(includeAuth: true);
-      print('🏦 Fetching bank accounts from: $baseUrl/bank-accounts/');
+      print('🏦 Fetching bank accounts from API: $baseUrl/bank-accounts/');
       print('🏦 Headers: $headers');
       
       final response = await http.get(
@@ -2061,6 +2555,9 @@ class ApiService {
         print('🏦 Extracted accounts list: $accountsList');
         print('🏦 Number of accounts: ${accountsList.length}');
         
+        // Cache the response (cache for 10 minutes)
+        await CacheService.setCache(cacheKey, accountsList, expiration: const Duration(minutes: 10));
+        
         return {'success': true, 'data': accountsList};
       } else {
         print('❌ Failed to fetch bank accounts: ${response.statusCode} - ${response.body}');
@@ -2072,6 +2569,13 @@ class ApiService {
       }
     } catch (e) {
       print('❌ Get bank accounts error: $e');
+      // Try to return cached data on error
+      final cacheKey = CacheService.getCacheKey('bank-accounts/');
+      final cachedData = await CacheService.getCache(cacheKey);
+      if (cachedData != null) {
+        print('📦 Returning cached bank accounts due to error');
+        return {'success': true, 'data': cachedData, 'fromCache': true};
+      }
       return {'success': false, 'error': {'message': e.toString()}};
     }
   }
@@ -2085,6 +2589,9 @@ class ApiService {
     bool isPrimary = false,
   }) async {
     try {
+      // Invalidate bank accounts cache
+      await CacheService.invalidateCachePattern('bank-accounts/');
+      
       final headers = await _getHeaders(includeAuth: true);
       final body = {
         'account_holder_name': accountHolderName,
@@ -2129,6 +2636,9 @@ class ApiService {
 
   static Future<Map<String, dynamic>> deleteBankAccount(int accountId) async {
     try {
+      // Invalidate bank accounts cache
+      await CacheService.invalidateCachePattern('bank-accounts/');
+      
       final response = await http.delete(
         Uri.parse('$baseUrl/bank-accounts/$accountId/'),
         headers: await _getHeaders(includeAuth: true),
@@ -2152,6 +2662,9 @@ class ApiService {
   // Withdrawal (Provider only)
   static Future<Map<String, dynamic>> withdrawMoney(int bankAccountId, double amount) async {
     try {
+      // Invalidate wallet balance cache
+      await CacheService.invalidateCachePattern('wallets/');
+      
       final response = await http.post(
         Uri.parse('$baseUrl/withdrawals/'),
         headers: await _getHeaders(includeAuth: true),

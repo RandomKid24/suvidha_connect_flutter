@@ -52,7 +52,7 @@ class _OnboardingStep2ScreenState extends State<OnboardingStep2Screen> {
   Future<void> _loadServices() async {
     setState(() => _isLoadingServices = true);
     
-    final result = await ApiService.getServiceCategories();
+    final result = await ApiService.getServiceCategories(forceRefresh: false);
     
     if (mounted) {
       setState(() => _isLoadingServices = false);
@@ -235,7 +235,12 @@ class _OnboardingStep2ScreenState extends State<OnboardingStep2Screen> {
 
             Expanded(
               child: SingleChildScrollView(
-                padding: const EdgeInsets.all(24),
+                padding: EdgeInsets.only(
+                  left: 24,
+                  right: 24,
+                  top: 24,
+                  bottom: 24 + MediaQuery.of(context).padding.bottom,
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [

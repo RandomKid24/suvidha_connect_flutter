@@ -45,7 +45,7 @@ class _ProviderRequestsScreenState extends State<ProviderRequestsScreen> {
   }
 
   Future<void> _refreshRequestsSilently() async {
-    final result = await ApiService.getProviderRequests();
+    final result = await ApiService.getProviderRequests(forceRefresh: false);
     if (mounted && result['success'] == true) {
       setState(() {
         _requests = result['data'] as List;
@@ -63,9 +63,9 @@ class _ProviderRequestsScreenState extends State<ProviderRequestsScreen> {
     }
   }
 
-  Future<void> _loadRequests() async {
+  Future<void> _loadRequests({bool forceRefresh = false}) async {
     setState(() => _isLoading = true);
-    final result = await ApiService.getProviderRequests();
+    final result = await ApiService.getProviderRequests(forceRefresh: forceRefresh);
     
     if (mounted) {
       setState(() => _isLoading = false);
@@ -87,7 +87,7 @@ class _ProviderRequestsScreenState extends State<ProviderRequestsScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Request accepted successfully')),
         );
-        _loadRequests(); // Refresh list
+        _loadRequests(forceRefresh: true); // Force refresh after accepting
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -107,7 +107,7 @@ class _ProviderRequestsScreenState extends State<ProviderRequestsScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Service marked as completed')),
         );
-        _loadRequests(); // Refresh list
+        _loadRequests(forceRefresh: true); // Force refresh after completing
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -177,7 +177,7 @@ class _ProviderRequestsScreenState extends State<ProviderRequestsScreen> {
             const AppHeader(),
             Expanded(
               child: RefreshIndicator(
-                onRefresh: _loadRequests,
+                onRefresh: () => _loadRequests(forceRefresh: true),
                 child: SingleChildScrollView(
                   physics: const AlwaysScrollableScrollPhysics(),
                   padding: const EdgeInsets.all(16),

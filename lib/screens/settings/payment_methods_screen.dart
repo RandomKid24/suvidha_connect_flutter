@@ -30,8 +30,8 @@ class _PaymentMethodsScreenState extends State<PaymentMethodsScreen> {
   @override
   void initState() {
     super.initState();
-    _loadBankAccounts();
-    _loadWalletBalance();
+    _loadBankAccounts(forceRefresh: false);
+    _loadWalletBalance(forceRefresh: false);
   }
 
   @override
@@ -44,9 +44,9 @@ class _PaymentMethodsScreenState extends State<PaymentMethodsScreen> {
     super.dispose();
   }
 
-  Future<void> _loadBankAccounts() async {
+  Future<void> _loadBankAccounts({bool forceRefresh = false}) async {
     setState(() => _isLoadingBankAccounts = true);
-    final result = await ApiService.getBankAccounts();
+    final result = await ApiService.getBankAccounts(forceRefresh: forceRefresh);
     if (mounted) {
       setState(() {
         _isLoadingBankAccounts = false;
@@ -73,9 +73,9 @@ class _PaymentMethodsScreenState extends State<PaymentMethodsScreen> {
     }
   }
 
-  Future<void> _loadWalletBalance() async {
+  Future<void> _loadWalletBalance({bool forceRefresh = false}) async {
     setState(() => _isLoadingWallet = true);
-    final result = await ApiService.getWalletBalance();
+    final result = await ApiService.getWalletBalance(forceRefresh: forceRefresh);
     if (mounted) {
       setState(() {
         _isLoadingWallet = false;
@@ -122,7 +122,7 @@ class _PaymentMethodsScreenState extends State<PaymentMethodsScreen> {
       _ifscCodeController.clear();
       _bankNameController.clear();
       _branchNameController.clear();
-      await _loadBankAccounts();
+      await _loadBankAccounts(forceRefresh: true); // Force refresh after adding
       
       if (!mounted) return;
       Navigator.pop(context); // Close dialog
@@ -178,14 +178,24 @@ class _PaymentMethodsScreenState extends State<PaymentMethodsScreen> {
 
     if (confirmed != true) return;
 
-    final result = await ApiService.deleteBankAccount(accountId);
+      // Optimistic update: Remove bank account from list immediately
+      final previousAccounts = List<Map<String, dynamic>>.from(_bankAccounts);
+      setState(() {
+        _bankAccounts = _bankAccounts.where((a) => a['id'] != accountId).toList();
+      });
+
+      final result = await ApiService.deleteBankAccount(accountId);
     if (mounted) {
       if (result['success'] == true) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Bank account deleted successfully')),
-        );
-        _loadBankAccounts();
-      } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Bank account deleted successfully')),
+          );
+          _loadBankAccounts(forceRefresh: true); // Force refresh after delete
+        } else {
+          // Revert optimistic update on error
+          setState(() {
+            _bankAccounts = previousAccounts;
+          });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(result['error']?['message'] ?? 'Failed to delete bank account')),
         );
@@ -329,8 +339,8 @@ class _PaymentMethodsScreenState extends State<PaymentMethodsScreen> {
                   backgroundColor: Colors.green,
                 ),
               );
-              _loadWalletBalance();
-              _loadBankAccounts();
+              _loadWalletBalance(forceRefresh: false);
+              _loadBankAccounts(forceRefresh: false);
             } else {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
@@ -355,7 +365,12 @@ class _PaymentMethodsScreenState extends State<PaymentMethodsScreen> {
             AppHeader(title: 'Payment Methods'),
             Expanded(
               child: SingleChildScrollView(
-                padding: const EdgeInsets.all(16),
+                padding: EdgeInsets.only(
+                  left: 16,
+                  right: 16,
+                  top: 16,
+                  bottom: 16 + MediaQuery.of(context).padding.bottom,
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [

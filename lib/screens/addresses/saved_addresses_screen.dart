@@ -31,7 +31,7 @@ class _SavedAddressesScreenState extends State<SavedAddressesScreen> {
       _error = null;
     });
 
-    final result = await ApiService.getSavedAddresses();
+    final result = await ApiService.getSavedAddresses(forceRefresh: false);
 
     if (mounted) {
       setState(() {
@@ -68,14 +68,24 @@ class _SavedAddressesScreenState extends State<SavedAddressesScreen> {
     );
 
     if (confirm == true) {
+      // Optimistic update: Remove address from list immediately
+      final previousAddresses = List<Map<String, dynamic>>.from(_addresses);
+      setState(() {
+        _addresses = _addresses.where((a) => a['id'] != addressId).toList();
+      });
+
       final result = await ApiService.deleteSavedAddress(addressId);
       if (mounted) {
         if (result['success'] == true) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Address deleted successfully')),
           );
-          _loadAddresses();
+          _loadAddresses(); // Force refresh after delete
         } else {
+          // Revert optimistic update on error
+          setState(() {
+            _addresses = previousAddresses;
+          });
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(result['error']?['message'] ?? 'Failed to delete address'),

@@ -18,8 +18,10 @@ class ReviewsScreen extends StatefulWidget {
 class _ReviewsScreenState extends State<ReviewsScreen> {
   List<dynamic> _completedBookings = [];
   List<dynamic> _reviews = [];
+  List<dynamic> _allReviews = []; // All reviews in the system
   bool _isLoading = true;
   String? _error;
+  bool _showAllReviews = true; // Show all reviews by default (from "view all" button)
 
   @override
   void initState() {
@@ -27,29 +29,35 @@ class _ReviewsScreenState extends State<ReviewsScreen> {
     _loadData();
   }
 
-  Future<void> _loadData() async {
-    setState(() {
-      _isLoading = true;
-      _error = null;
-    });
+  Future<void> _loadData({bool forceRefresh = false, bool showLoading = true}) async {
+    if (showLoading) {
+      setState(() {
+        _isLoading = true;
+        _error = null;
+      });
+    }
 
-    // Load completed bookings
-    final bookingsResult = await ApiService.getUserBookings();
+    // Load all reviews (use cache by default) - this is what "view all" should show
+    final reviewsResult = await ApiService.getReviews(forceRefresh: forceRefresh);
     
-    // Load existing reviews
-    final reviewsResult = await ApiService.getReviews();
+    // Also load completed bookings for the "My Reviews" section
+    final bookingsResult = await ApiService.getUserBookings(forceRefresh: forceRefresh);
 
     if (mounted) {
       setState(() {
-        _isLoading = false;
+        if (showLoading) {
+          _isLoading = false;
+        }
+        if (reviewsResult['success'] == true) {
+          _allReviews = reviewsResult['data'] as List;
+          // Use all reviews to check if booking was reviewed
+          _reviews = _allReviews;
+        }
         if (bookingsResult['success'] == true) {
           final allBookings = bookingsResult['data'] as List;
           _completedBookings = allBookings.where((b) => b['status'] == 'completed').toList();
         }
-        if (reviewsResult['success'] == true) {
-          _reviews = reviewsResult['data'] as List;
-        }
-        if (bookingsResult['success'] != true && reviewsResult['success'] != true) {
+        if (reviewsResult['success'] != true && bookingsResult['success'] != true) {
           _error = 'Failed to load data';
         }
       });
@@ -173,7 +181,7 @@ class _ReviewsScreenState extends State<ReviewsScreen> {
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(content: Text('Review submitted successfully')),
                           );
-                          _loadData();
+                          _loadData(forceRefresh: true); // Force refresh after creating review
                         } else {
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
@@ -206,29 +214,85 @@ class _ReviewsScreenState extends State<ReviewsScreen> {
           children: [
             const AppHeader(),
             Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(16),
+              child: RefreshIndicator(
+                onRefresh: () async {
+                  // Refresh both all reviews and completed bookings
+                  // Don't show loading spinner during pull-to-refresh (RefreshIndicator handles it)
+                  await _loadData(forceRefresh: true, showLoading: false);
+                },
+                child: SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: EdgeInsets.only(
+                    left: 16,
+                    right: 16,
+                    top: 16,
+                    bottom: 16 + MediaQuery.of(context).padding.bottom,
+                  ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'My Reviews',
-                      style: TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.bold,
-                        color: context.foregroundColor,
-                      ),
+                    // Toggle between "All Reviews" and "My Reviews"
+                    Row(
+                      children: [
+                        Expanded(
+                          child: GestureDetector(
+                            onTap: () {
+                              setState(() {
+                                _showAllReviews = true;
+                              });
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                              decoration: BoxDecoration(
+                                color: _showAllReviews ? AppColors.primary : Colors.transparent,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: _showAllReviews ? AppColors.primary : context.borderColor,
+                                ),
+                              ),
+                              child: Text(
+                                'All Reviews',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                  color: _showAllReviews ? Colors.white : context.foregroundColor,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: GestureDetector(
+                            onTap: () {
+                              setState(() {
+                                _showAllReviews = false;
+                              });
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                              decoration: BoxDecoration(
+                                color: !_showAllReviews ? AppColors.primary : Colors.transparent,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: !_showAllReviews ? AppColors.primary : context.borderColor,
+                                ),
+                              ),
+                              child: Text(
+                                'My Reviews',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                  color: !_showAllReviews ? Colors.white : context.foregroundColor,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ).animate().fadeIn(duration: 500.ms).moveY(begin: 20, end: 0),
-                    
-                    const SizedBox(height: 8),
-                    
-                    Text(
-                      'Review your completed services',
-                      style: TextStyle(
-                        color: context.mutedForegroundColor,
-                        fontSize: 14,
-                      ),
-                    ).animate(delay: 100.ms).fadeIn(duration: 500.ms),
                     
                     const SizedBox(height: 20),
                     
@@ -269,42 +333,76 @@ class _ReviewsScreenState extends State<ReviewsScreen> {
                           ),
                         ),
                       )
-                    else if (_completedBookings.isEmpty)
-                      Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const SizedBox(height: 60),
-                            Icon(
-                              Iconsax.star,
-                              size: 80,
-                              color: context.mutedForegroundColor.withOpacity(0.5),
-                            ),
-                            const SizedBox(height: 16),
-                            Text(
-                              'No completed services',
-                              style: TextStyle(
-                                color: context.mutedForegroundColor,
-                                fontSize: 16,
+                    else if (_showAllReviews)
+                      // Show all reviews
+                      _allReviews.isEmpty
+                          ? SizedBox(
+                              height: MediaQuery.of(context).size.height * 0.4,
+                              child: Center(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(
+                                      Iconsax.star,
+                                      size: 80,
+                                      color: context.mutedForegroundColor.withOpacity(0.5),
+                                    ),
+                                    const SizedBox(height: 16),
+                                    Text(
+                                      'No reviews yet',
+                                      style: TextStyle(
+                                        color: context.mutedForegroundColor,
+                                        fontSize: 16,
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'Complete a service to review it',
-                              style: TextStyle(
-                                color: context.mutedForegroundColor,
-                                fontSize: 14,
-                              ),
-                            ),
-                          ],
-                        ),
-                      )
+                            )
+                          : ..._allReviews.asMap().entries.map((entry) {
+                              final index = entry.key;
+                              final review = entry.value;
+                              return _buildReviewCard(review, index);
+                            })
                     else
-                      ..._completedBookings.asMap().entries.map((entry) {
-                        final index = entry.key;
-                        final booking = entry.value;
-                        return _buildBookingCard(booking, index);
-                      }),
+                      // Show "My Reviews" - completed bookings to review
+                      _completedBookings.isEmpty
+                          ? SizedBox(
+                              height: MediaQuery.of(context).size.height * 0.4,
+                              child: Center(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(
+                                      Iconsax.star,
+                                      size: 80,
+                                      color: context.mutedForegroundColor.withOpacity(0.5),
+                                    ),
+                                    const SizedBox(height: 16),
+                                    Text(
+                                      'No completed services',
+                                      style: TextStyle(
+                                        color: context.mutedForegroundColor,
+                                        fontSize: 16,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      'Complete a service to review it',
+                                      style: TextStyle(
+                                        color: context.mutedForegroundColor,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            )
+                          : ..._completedBookings.asMap().entries.map((entry) {
+                              final index = entry.key;
+                              final booking = entry.value;
+                              return _buildBookingCard(booking, index);
+                            }),
                   ],
                 ),
               ),
@@ -410,6 +508,101 @@ class _ReviewsScreenState extends State<ReviewsScreen> {
                   foregroundColor: AppColors.primary,
                   side: BorderSide(color: AppColors.primary),
                 ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    ).animate(delay: Duration(milliseconds: index * 100)).fadeIn(duration: 400.ms).moveX(begin: 20, end: 0);
+  }
+
+  Widget _buildReviewCard(Map<String, dynamic> review, int index) {
+    final customerName = review['customer_name'] ?? 'Anonymous';
+    final serviceName = review['service_name'] ?? 'Service';
+    final rating = review['rating'] as int? ?? 0;
+    final comment = review['comment'] ?? '';
+    final createdAt = review['created_at'];
+    
+    String? dateStr;
+    if (createdAt != null) {
+      try {
+        final date = DateTime.parse(createdAt);
+        dateStr = DateFormat('MMM d, yyyy').format(date);
+      } catch (e) {
+        dateStr = createdAt.toString();
+      }
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: context.cardColor,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: context.borderColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      customerName,
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 16,
+                        color: context.foregroundColor,
+                      ),
+                    ),
+                    if (serviceName.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        'for $serviceName',
+                        style: TextStyle(
+                          color: context.mutedForegroundColor,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                    if (dateStr != null) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        dateStr,
+                        style: TextStyle(
+                          color: context.mutedForegroundColor,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              Row(
+                children: List.generate(
+                  5,
+                  (i) => Icon(
+                    Icons.star,
+                    color: i < rating
+                        ? AppColors.amber
+                        : context.mutedColor,
+                    size: 18,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (comment.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Text(
+              comment,
+              style: TextStyle(
+                color: context.foregroundColor,
+                fontSize: 14,
               ),
             ),
           ],

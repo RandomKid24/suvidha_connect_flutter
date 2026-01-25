@@ -54,7 +54,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _loadUserData() async {
     setState(() => _isLoading = true);
-    final result = await ApiService.getCurrentUserInfo();
+    final result = await ApiService.getCurrentUserInfo(forceRefresh: false);
     
     if (mounted) {
       setState(() {
@@ -189,7 +189,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const AppHeader(),
             Expanded(
               child: SingleChildScrollView(
-                padding: const EdgeInsets.all(16),
+                padding: EdgeInsets.only(
+                  left: 16,
+                  right: 16,
+                  top: 16,
+                  bottom: 16 + MediaQuery.of(context).padding.bottom,
+                ),
                 child: Form(
                   key: _formKey,
                   child: Column(

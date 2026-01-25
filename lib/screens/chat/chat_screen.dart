@@ -64,7 +64,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _loadUserInfo() async {
     try {
-      final result = await ApiService.getCurrentUserInfo();
+      final result = await ApiService.getCurrentUserInfo(forceRefresh: false);
       if (result['success'] == true) {
         final userData = result['data'];
         setState(() {
@@ -99,7 +99,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final bId = int.tryParse(widget.bookingId);
     if (bId == null) return;
 
-    final result = await ApiService.getUserBookings();
+    final result = await ApiService.getUserBookings(forceRefresh: false);
     if (result['success'] == true) {
       final bookings = result['data'] as List;
       final booking = bookings.firstWhere(

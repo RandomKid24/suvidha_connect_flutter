@@ -54,8 +54,8 @@ class _SavedServicesScreenState extends State<SavedServicesScreen> {
       _isLoading = true;
     });
 
-    // Load service categories
-    final categoriesResult = await ApiService.getServiceCategories();
+    // Load service categories (use cache by default)
+    final categoriesResult = await ApiService.getServiceCategories(forceRefresh: false);
     if (mounted) {
       if (categoriesResult['success'] == true) {
         final data = categoriesResult['data'];
@@ -87,6 +87,7 @@ class _SavedServicesScreenState extends State<SavedServicesScreen> {
       latitude: _userLocation != null ? _userLocation!.latitude : null,
       longitude: _userLocation != null ? _userLocation!.longitude : null,
       radius: _userLocation != null ? _radius : null, // Apply radius filter when location is available
+      forceRefresh: false, // Use cache by default
     );
 
     if (mounted) {

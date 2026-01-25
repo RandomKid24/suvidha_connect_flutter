@@ -43,13 +43,29 @@ class _MyServicesScreenState extends State<MyServicesScreen> {
     {'value': 50.0, 'label': '50 km'},
   ];
 
+  bool _hasInitialized = false;
+
   @override
   void initState() {
     super.initState();
-    _loadServiceCategories();
-    _getUserLocation();
-    _loadProviders(reset: true);
     _scrollController.addListener(_onScroll);
+    // Load from cache first, don't call API on every navigation
+    _initializeData();
+  }
+
+  Future<void> _initializeData() async {
+    if (_hasInitialized) {
+      // Already initialized, just use cached data
+      return;
+    }
+    _hasInitialized = true;
+    
+    // Load service categories (use cache)
+    await _loadServiceCategories(forceRefresh: false);
+    // Get user location (non-blocking)
+    _getUserLocation();
+    // Load providers from cache first
+    await _loadProviders(reset: true, forceRefresh: false);
   }
 
   @override
@@ -96,8 +112,8 @@ class _MyServicesScreenState extends State<MyServicesScreen> {
     }
   }
 
-  Future<void> _loadServiceCategories() async {
-    final result = await ApiService.getServiceCategories();
+  Future<void> _loadServiceCategories({bool forceRefresh = false}) async {
+    final result = await ApiService.getServiceCategories(forceRefresh: forceRefresh);
     if (mounted && result['success'] == true) {
       final data = result['data'];
       List<dynamic> categoriesList = [];
@@ -113,7 +129,7 @@ class _MyServicesScreenState extends State<MyServicesScreen> {
     }
   }
 
-  Future<void> _loadProviders({bool reset = false}) async {
+  Future<void> _loadProviders({bool reset = false, bool forceRefresh = false}) async {
     if (reset) {
       setState(() {
         _isLoading = true;
@@ -132,6 +148,7 @@ class _MyServicesScreenState extends State<MyServicesScreen> {
       searchQuery: _searchController.text.isNotEmpty ? _searchController.text : null,
       latitude: _selectedRadius != null && _userPosition != null ? _userPosition!.latitude : null,
       longitude: _selectedRadius != null && _userPosition != null ? _userPosition!.longitude : null,
+      forceRefresh: forceRefresh, // Use forceRefresh parameter
       radius: _selectedRadius,
       availableOnly: _availableOnly ? true : null,
       sortBy: _sortBy,
@@ -161,7 +178,12 @@ class _MyServicesScreenState extends State<MyServicesScreen> {
   }
 
   void _applyFilters() {
-    _loadProviders(reset: true);
+    _loadProviders(reset: true, forceRefresh: false); // Use cache when applying filters
+  }
+
+  Future<void> _handleRefresh() async {
+    // Force refresh from API when user pulls to refresh
+    await _loadProviders(reset: true, forceRefresh: true);
   }
 
   @override
@@ -438,49 +460,64 @@ class _MyServicesScreenState extends State<MyServicesScreen> {
                     ),
                   ),
                   
-                  // Providers List
+                  // Providers List with Pull-to-Refresh
                   Expanded(
-                    child: _isLoading && _providers.isEmpty
-                        ? const Center(
-                            child: CircularProgressIndicator(),
-                          )
-                        : _providers.isEmpty
-                            ? Center(
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
+                    child: RefreshIndicator(
+                      onRefresh: _handleRefresh,
+                      child: _isLoading && _providers.isEmpty
+                          ? const Center(
+                              child: CircularProgressIndicator(),
+                            )
+                          : _providers.isEmpty
+                              ? ListView(
                                   children: [
-                                    Icon(
-                                      Iconsax.user_search,
-                                      size: 80,
-                                      color: context.mutedForegroundColor.withOpacity(0.5),
-                                    ),
-                                    const SizedBox(height: 16),
-                                    Text(
-                                      'No providers found',
-                                      style: TextStyle(
-                                        color: context.mutedForegroundColor,
-                                        fontSize: 16,
+                                    SizedBox(
+                                      height: MediaQuery.of(context).size.height * 0.4,
+                                      child: Center(
+                                        child: Column(
+                                          mainAxisAlignment: MainAxisAlignment.center,
+                                          children: [
+                                            Icon(
+                                              Iconsax.user_search,
+                                              size: 80,
+                                              color: context.mutedForegroundColor.withOpacity(0.5),
+                                            ),
+                                            const SizedBox(height: 16),
+                                            Text(
+                                              'No providers found',
+                                              style: TextStyle(
+                                                color: context.mutedForegroundColor,
+                                                fontSize: 16,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
                                       ),
                                     ),
                                   ],
+                                )
+                              : ListView.builder(
+                                  controller: _scrollController,
+                                  padding: EdgeInsets.only(
+                                    left: 16,
+                                    right: 16,
+                                    top: 16,
+                                    bottom: 16 + MediaQuery.of(context).padding.bottom,
+                                  ),
+                                  itemCount: _providers.length + (_isLoadingMore ? 1 : 0),
+                                  itemBuilder: (context, index) {
+                                    if (index == _providers.length) {
+                                      return const Center(
+                                        child: Padding(
+                                          padding: EdgeInsets.all(16.0),
+                                          child: CircularProgressIndicator(),
+                                        ),
+                                      );
+                                    }
+                                    return _buildProviderCard(context, _providers[index], index);
+                                  },
                                 ),
-                              )
-                            : ListView.builder(
-                                controller: _scrollController,
-                                padding: const EdgeInsets.all(16),
-                                itemCount: _providers.length + (_isLoadingMore ? 1 : 0),
-                                itemBuilder: (context, index) {
-                                  if (index == _providers.length) {
-                                    return const Center(
-                                      child: Padding(
-                                        padding: EdgeInsets.all(16.0),
-                                        child: CircularProgressIndicator(),
-                                      ),
-                                    );
-                                  }
-                                  return _buildProviderCard(context, _providers[index], index);
-                                },
-                              ),
+                    ),
                   ),
                 ],
               ),

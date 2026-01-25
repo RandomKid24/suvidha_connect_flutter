@@ -21,12 +21,13 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   @override
   void initState() {
     super.initState();
-    _loadNotifications();
+    // Load from cache first, don't call API on every navigation
+    _loadNotifications(forceRefresh: false);
   }
 
-  Future<void> _loadNotifications() async {
+  Future<void> _loadNotifications({bool forceRefresh = false}) async {
     setState(() => _isLoading = true);
-    final result = await ApiService.getNotifications();
+    final result = await ApiService.getNotifications(forceRefresh: forceRefresh);
     
     if (mounted) {
       setState(() => _isLoading = false);
@@ -36,6 +37,11 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         });
       }
     }
+  }
+
+  Future<void> _handleRefresh() async {
+    // Force refresh from API when user pulls to refresh
+    await _loadNotifications(forceRefresh: true);
   }
 
   String _formatTime(String? dateTimeString) {
@@ -114,58 +120,69 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           children: [
             const AppHeader(),
             Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Notifications',
-                      style: TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.bold,
-                        color: context.foregroundColor,
-                      ),
-                    ).animate().fadeIn(duration: 500.ms).moveY(begin: 20, end: 0),
-                    
-                    const SizedBox(height: 20),
-                    
-                    if (_isLoading)
-                      const Center(
-                        child: Padding(
-                          padding: EdgeInsets.all(32.0),
-                          child: CircularProgressIndicator(),
+              child: RefreshIndicator(
+                onRefresh: _handleRefresh,
+                child: SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(), // Enable pull-to-refresh even when content is short
+                  padding: EdgeInsets.only(
+                    left: 16,
+                    right: 16,
+                    top: 16,
+                    bottom: 16 + MediaQuery.of(context).padding.bottom,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Notifications',
+                        style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold,
+                          color: context.foregroundColor,
                         ),
-                      )
-                    else if (_notifications.isEmpty)
-                      Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const SizedBox(height: 60),
-                            Icon(
-                              Iconsax.notification,
-                              size: 80,
-                              color: context.mutedForegroundColor.withOpacity(0.5),
+                      ).animate().fadeIn(duration: 500.ms).moveY(begin: 20, end: 0),
+                      
+                      const SizedBox(height: 20),
+                      
+                      if (_isLoading)
+                        const Center(
+                          child: Padding(
+                            padding: EdgeInsets.all(32.0),
+                            child: CircularProgressIndicator(),
+                          ),
+                        )
+                      else if (_notifications.isEmpty)
+                        SizedBox(
+                          height: MediaQuery.of(context).size.height * 0.4,
+                          child: Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Iconsax.notification,
+                                  size: 80,
+                                  color: context.mutedForegroundColor.withOpacity(0.5),
+                                ),
+                                const SizedBox(height: 16),
+                                Text(
+                                  'No notifications yet',
+                                  style: TextStyle(
+                                    color: context.mutedForegroundColor,
+                                    fontSize: 16,
+                                  ),
+                                ),
+                              ],
                             ),
-                            const SizedBox(height: 16),
-                            Text(
-                              'No notifications yet',
-                              style: TextStyle(
-                                color: context.mutedForegroundColor,
-                                fontSize: 16,
-                              ),
-                            ),
-                          ],
-                        ),
-                      )
-                    else
-                      ..._notifications.asMap().entries.map((entry) {
-                        final index = entry.key;
-                        final notification = entry.value;
-                        return _buildNotificationCard(notification, index);
-                      }),
-                  ],
+                          ),
+                        )
+                      else
+                        ..._notifications.asMap().entries.map((entry) {
+                          final index = entry.key;
+                          final notification = entry.value;
+                          return _buildNotificationCard(notification, index);
+                        }),
+                    ],
+                  ),
                 ),
               ),
             ),

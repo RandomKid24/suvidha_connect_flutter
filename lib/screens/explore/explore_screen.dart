@@ -88,8 +88,8 @@ class _ExploreScreenState extends State<ExploreScreen> {
     }
   }
 
-  Future<void> _loadServiceCategories() async {
-    final result = await ApiService.getServiceCategories();
+  Future<void> _loadServiceCategories({bool forceRefresh = false}) async {
+    final result = await ApiService.getServiceCategories(forceRefresh: forceRefresh);
     if (mounted && result['success'] == true) {
       final data = result['data'];
       List<dynamic> categoriesList = [];
@@ -132,7 +132,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
     print('🔍 Loading providers with search query: "$searchQuery"');
     print('📍 Service category ID: $_selectedServiceId');
     
-    // Fetch providers with filters
+    // Fetch providers with filters (use cache by default)
     final result = await ApiService.getProviders(
       serviceCategoryId: _selectedServiceId,
       searchQuery: searchQuery,
@@ -141,6 +141,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
       radius: _useLocationFilter ? _radius : null, // Use selected radius
       availableOnly: _availableOnly ? true : null,
       sortBy: _sortBy,
+      forceRefresh: false, // Use cache by default
     );
     
     if (mounted) {

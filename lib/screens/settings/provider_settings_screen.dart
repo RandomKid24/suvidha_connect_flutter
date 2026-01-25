@@ -50,7 +50,7 @@ class _ProviderSettingsScreenState extends State<ProviderSettingsScreen> {
 
   Future<void> _loadProviderData() async {
     setState(() => _isLoading = true);
-    final result = await ApiService.getProviderProfile();
+    final result = await ApiService.getProviderProfile(forceRefresh: false);
     
     if (mounted) {
       setState(() {
@@ -101,7 +101,7 @@ class _ProviderSettingsScreenState extends State<ProviderSettingsScreen> {
   }
   
   Future<void> _loadReviews(int providerId) async {
-    final reviewsResult = await ApiService.getReviews(providerId: providerId);
+    final reviewsResult = await ApiService.getReviews(providerId: providerId, forceRefresh: false);
     if (mounted && reviewsResult['success'] == true) {
       setState(() {
         _reviews = reviewsResult['data'] as List;
@@ -271,7 +271,12 @@ class _ProviderSettingsScreenState extends State<ProviderSettingsScreen> {
               child: _isLoading
                   ? const Center(child: CircularProgressIndicator())
                   : SingleChildScrollView(
-                      padding: const EdgeInsets.all(16),
+                      padding: EdgeInsets.only(
+                        left: 16,
+                        right: 16,
+                        top: 16,
+                        bottom: 16 + MediaQuery.of(context).padding.bottom,
+                      ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [

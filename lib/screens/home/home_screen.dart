@@ -42,7 +42,7 @@ class _HomeScreenState extends State<HomeScreen> {
   
   Future<void> _loadUserRole() async {
     setState(() => _isLoadingUser = true);
-    final result = await ApiService.getCurrentUserInfo();
+    final result = await ApiService.getCurrentUserInfo(forceRefresh: false);
     
     if (mounted) {
       setState(() => _isLoadingUser = false);
@@ -69,9 +69,9 @@ class _HomeScreenState extends State<HomeScreen> {
     _loadBookingRequests();
   }
   
-  Future<void> _loadBookingRequests() async {
+  Future<void> _loadBookingRequests({bool forceRefresh = false}) async {
     setState(() => _isLoadingRequests = true);
-    final result = await ApiService.getProviderRequests();
+    final result = await ApiService.getProviderRequests(forceRefresh: forceRefresh);
     
     if (mounted) {
       setState(() => _isLoadingRequests = false);
@@ -88,9 +88,9 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> _loadServices() async {
+  Future<void> _loadServices({bool forceRefresh = false}) async {
     setState(() => _isLoadingServices = true);
-    final result = await ApiService.getServiceCategories();
+    final result = await ApiService.getServiceCategories(forceRefresh: forceRefresh);
     
     if (mounted) {
       setState(() => _isLoadingServices = false);
@@ -109,9 +109,9 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> _loadReviews() async {
+  Future<void> _loadReviews({bool forceRefresh = false}) async {
     setState(() => _isLoadingReviews = true);
-    final result = await ApiService.getReviews(limit: 3);
+    final result = await ApiService.getReviews(limit: 3, forceRefresh: forceRefresh);
     
     if (mounted) {
       setState(() => _isLoadingReviews = false);
@@ -146,10 +146,10 @@ class _HomeScreenState extends State<HomeScreen> {
               child: RefreshIndicator(
                 onRefresh: () async {
                   if (_userRole == 'provider') {
-                    await _loadBookingRequests();
+                    await _loadBookingRequests(forceRefresh: true);
                   } else {
-                    await _loadServices();
-                    await _loadReviews();
+                    await _loadServices(forceRefresh: true);
+                    await _loadReviews(forceRefresh: true);
                   }
                 },
                 child: SingleChildScrollView(
@@ -557,12 +557,12 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _handleStartNegotiation(BuildContext context, int bookingId) async {
     final result = await ApiService.startNegotiation(bookingId);
     if (mounted) {
-      if (result['success'] == true) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Negotiation started. You can now chat with the customer.')),
-        );
-        _loadBookingRequests();
-      } else {
+        if (result['success'] == true) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Negotiation started. You can now chat with the customer.')),
+          );
+          _loadBookingRequests(forceRefresh: true);
+        } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(result['error']?['message'] ?? 'Failed to start negotiation')),
         );
@@ -577,7 +577,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Booking accepted successfully')),
         );
-        _loadBookingRequests();
+        _loadBookingRequests(forceRefresh: true);
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(result['error']?['message'] ?? 'Failed to accept booking')),
@@ -614,7 +614,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Booking rejected')),
           );
-          _loadBookingRequests();
+          _loadBookingRequests(forceRefresh: true);
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text(result['error']?['message'] ?? 'Failed to reject booking')),

@@ -47,7 +47,8 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
   }
 
   Future<void> _refreshDataSilently() async {
-    final bookingsResult = await ApiService.getUserBookings();
+    // Use cache first, but refresh if data is stale
+    final bookingsResult = await ApiService.getUserBookings(forceRefresh: false);
     if (mounted && bookingsResult['success'] == true) {
       setState(() {
         _bookings = bookingsResult['data'] as List;
@@ -55,15 +56,15 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
     }
   }
 
-  Future<void> _loadData() async {
+  Future<void> _loadData({bool forceRefresh = false}) async {
     setState(() {
       _isLoading = true;
       _error = null;
     });
 
-    // Load bookings and reviews in parallel
-    final bookingsResult = await ApiService.getUserBookings();
-    final reviewsResult = await ApiService.getReviews();
+    // Load bookings and reviews in parallel (use cache by default)
+    final bookingsResult = await ApiService.getUserBookings(forceRefresh: forceRefresh);
+    final reviewsResult = await ApiService.getReviews(forceRefresh: forceRefresh);
 
     if (mounted) {
       setState(() {
@@ -176,6 +177,12 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
 
     if (confirmed != true) return;
 
+    // Optimistic update: Remove booking from list immediately
+    final previousBookings = List<Map<String, dynamic>>.from(_bookings);
+    setState(() {
+      _bookings = _bookings.where((b) => b['id'] != bookingId).toList();
+    });
+
     // Show loading
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -186,7 +193,17 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
       );
     }
 
-    final result = await ApiService.cancelBooking(bookingId);
+    final result = await ApiService.cancelBooking(
+      bookingId,
+      onError: () {
+        // Revert optimistic update on error
+        if (mounted) {
+          setState(() {
+            _bookings = previousBookings;
+          });
+        }
+      },
+    );
     
     if (mounted) {
       if (result['success'] == true) {
@@ -196,8 +213,10 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
             backgroundColor: AppColors.success,
           ),
         );
-        _loadData(); // Refresh the list
+        // Refresh to get updated data from server
+        _loadData(forceRefresh: true);
       } else {
+        // Error already handled by onError callback (reverted state)
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
@@ -238,6 +257,12 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
 
     if (confirmed != true) return;
 
+    // Optimistic update: Remove booking from list immediately
+    final previousBookings = List<Map<String, dynamic>>.from(_bookings);
+    setState(() {
+      _bookings = _bookings.where((b) => b['id'] != bookingId).toList();
+    });
+
     // Show loading
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -248,7 +273,17 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
       );
     }
 
-    final result = await ApiService.deleteBooking(bookingId);
+    final result = await ApiService.deleteBooking(
+      bookingId,
+      onError: () {
+        // Revert optimistic update on error
+        if (mounted) {
+          setState(() {
+            _bookings = previousBookings;
+          });
+        }
+      },
+    );
     
     if (mounted) {
       if (result['success'] == true) {
@@ -258,8 +293,10 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
             backgroundColor: AppColors.success,
           ),
         );
-        _loadData(); // Refresh the list
+        // Refresh to get updated data from server
+        _loadData(forceRefresh: true);
       } else {
+        // Error already handled by onError callback (reverted state)
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
@@ -382,15 +419,42 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
                         'comment': commentController.text.trim(),
                       };
 
-                      final result = await ApiService.createReview(reviewData);
+                      // Optimistic update: Add review to local list immediately
+                      final optimisticReview = {
+                        'id': DateTime.now().millisecondsSinceEpoch, // Temporary ID
+                        'provider_id': providerId,
+                        'service_category_id': serviceCategoryId,
+                        'rating': selectedRating,
+                        'comment': commentController.text.trim(),
+                        'customer_name': 'You',
+                        'created_at': DateTime.now().toIso8601String(),
+                      };
+                      final previousReviews = List<dynamic>.from(_reviews);
+                      setState(() {
+                        _reviews = [optimisticReview, ..._reviews];
+                      });
+
+                      final result = await ApiService.createReview(
+                        reviewData,
+                        onError: () {
+                          // Revert optimistic update on error
+                          if (mounted) {
+                            setState(() {
+                              _reviews = previousReviews;
+                            });
+                          }
+                        },
+                      );
                       if (mounted) {
                         Navigator.pop(context);
                         if (result['success'] == true) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(content: Text('Review submitted successfully')),
                           );
-                          _loadData();
+                          // Refresh to get the actual review from server
+                          _loadData(forceRefresh: true);
                         } else {
+                          // Error already handled by onError callback (reverted state)
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
                               content: Text(

@@ -356,14 +356,14 @@ class _FloatingBookingWidgetState extends State<_FloatingBookingWidget> {
   }
 
   Future<void> _loadLatestBooking() async {
-    final result = await ApiService.getCurrentUserInfo();
+    final result = await ApiService.getCurrentUserInfo(forceRefresh: false);
     if (result['success'] == true) {
       final userData = result['data'];
       final role = userData['role'] ?? 'customer';
       
       if (role == 'provider') {
         // Get provider bookings
-        final bookingsResult = await ApiService.getProviderRequests();
+        final bookingsResult = await ApiService.getProviderRequests(forceRefresh: false);
         if (bookingsResult['success'] == true) {
           final bookings = bookingsResult['data'] as List;
           // Filter bookings that are not completed, cancelled, or payment

@@ -51,7 +51,7 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
 
   Future<void> _loadSavedAddresses() async {
     setState(() => _isLoadingAddresses = true);
-    final result = await ApiService.getSavedAddresses();
+    final result = await ApiService.getSavedAddresses(forceRefresh: false);
     if (mounted) {
       setState(() {
         _isLoadingAddresses = false;
@@ -201,7 +201,12 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
             const AppHeader(),
             Expanded(
               child: SingleChildScrollView(
-                padding: const EdgeInsets.all(16),
+                padding: EdgeInsets.only(
+                  left: 16,
+                  right: 16,
+                  top: 16,
+                  bottom: 16 + MediaQuery.of(context).padding.bottom,
+                ),
                 child: Form(
                   key: _formKey,
                   child: Column(

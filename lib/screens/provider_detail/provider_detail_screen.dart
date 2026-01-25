@@ -28,7 +28,7 @@ class _ProviderDetailScreenState extends State<ProviderDetailScreen> {
     _loadProviderData();
   }
 
-  Future<void> _loadProviderData() async {
+  Future<void> _loadProviderData({bool forceRefresh = false}) async {
     setState(() {
       _isLoading = true;
       _error = null;
@@ -47,12 +47,11 @@ class _ProviderDetailScreenState extends State<ProviderDetailScreen> {
     
     print('✅ Parsed provider ID: $providerId');
     
-    // Load provider details
-    final providerResult = await ApiService.getProviderDetails(providerId);
+    // Load provider details and reviews in parallel (use cache by default)
+    final providerResult = await ApiService.getProviderDetails(providerId, forceRefresh: forceRefresh);
     print('📊 Provider result: success=${providerResult['success']}, error=${providerResult['error']}');
     
-    // Load reviews for this provider
-    final reviewsResult = await ApiService.getReviews(providerId: providerId);
+    final reviewsResult = await ApiService.getReviews(providerId: providerId, forceRefresh: forceRefresh);
     print('📊 Reviews result: success=${reviewsResult['success']}');
     
     if (mounted) {
@@ -222,7 +221,12 @@ class _ProviderDetailScreenState extends State<ProviderDetailScreen> {
       ),
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
+          padding: EdgeInsets.only(
+            left: 16,
+            right: 16,
+            top: 16,
+            bottom: 16 + MediaQuery.of(context).padding.bottom,
+          ),
           child: Column(
             children: [
               // Provider Card and rest of content
