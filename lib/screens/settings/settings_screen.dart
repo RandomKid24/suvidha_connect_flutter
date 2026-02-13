@@ -52,9 +52,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     super.dispose();
   }
 
-  Future<void> _loadUserData() async {
+  Future<void> _loadUserData({bool forceRefresh = false}) async {
     setState(() => _isLoading = true);
-    final result = await ApiService.getCurrentUserInfo(forceRefresh: false);
+    final result = await ApiService.getCurrentUserInfo(forceRefresh: forceRefresh);
     
     if (mounted) {
       setState(() {
@@ -160,6 +160,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       return Scaffold(
         backgroundColor: context.backgroundColor,
         body: SafeArea(
+          bottom: false,
           child: Column(
             children: [
               const AppHeader(),
@@ -184,18 +185,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Scaffold(
       backgroundColor: context.backgroundColor,
       body: SafeArea(
+        bottom: false,
         child: Column(
           children: [
             const AppHeader(),
             Expanded(
-              child: SingleChildScrollView(
-                padding: EdgeInsets.only(
-                  left: 16,
-                  right: 16,
-                  top: 16,
-                  bottom: 16 + MediaQuery.of(context).padding.bottom,
-                ),
-                child: Form(
+              child: RefreshIndicator(
+                onRefresh: () => _loadUserData(forceRefresh: true),
+                child: SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: EdgeInsets.only(
+                    left: 16,
+                    right: 16,
+                    top: 16,
+                    bottom: 16 + MediaQuery.of(context).padding.bottom,
+                  ),
+                  child: Form(
                   key: _formKey,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -579,6 +584,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ).animate(delay: 600.ms).fadeIn(duration: 500.ms).moveY(begin: 20, end: 0),
                     ],
                   ),
+                ),
                 ),
               ),
             ),

@@ -6,6 +6,7 @@ import 'package:iconsax/iconsax.dart';
 import 'package:intl/intl.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/theme_extensions.dart';
+import '../../core/booking_card_refresh.dart';
 import '../../services/api_service.dart';
 import '../../services/notification_scheduler_service.dart';
 import '../../widgets/app_header.dart';
@@ -84,69 +85,14 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
     }
   }
 
-  bool _hasReviewed(int providerId, int? serviceCategoryId) {
-    if (_reviews.isEmpty) {
-      return false;
-    }
-    
-    print('🔍 Checking review for Provider: $providerId, Service: $serviceCategoryId');
-    print('📋 Total reviews: ${_reviews.length}');
-    
-    for (var review in _reviews) {
-      // Extract provider ID - handle both object and ID formats
-      dynamic reviewProviderId;
-      if (review['provider'] is Map) {
-        reviewProviderId = review['provider']?['id'];
-      } else {
-        reviewProviderId = review['provider'];
-      }
-      
-      // Extract service category ID - handle both object and ID formats
-      dynamic reviewServiceCategoryId;
-      if (review['service_category'] != null) {
-        if (review['service_category'] is Map) {
-          reviewServiceCategoryId = review['service_category']?['id'];
-        } else {
-          reviewServiceCategoryId = review['service_category'];
-        }
-      } else {
-        reviewServiceCategoryId = null;
-      }
-      
-      // Convert to int for comparison
-      final reviewProviderIdInt = reviewProviderId is int ? reviewProviderId : int.tryParse(reviewProviderId.toString());
-      final reviewServiceCategoryIdInt = reviewServiceCategoryId == null 
-          ? null 
-          : (reviewServiceCategoryId is int ? reviewServiceCategoryId : int.tryParse(reviewServiceCategoryId.toString()));
-      
-      print('  Review - Provider: $reviewProviderIdInt, Service: $reviewServiceCategoryIdInt');
-      
-      // Provider must match exactly
-      if (reviewProviderIdInt != providerId) {
-        continue; // Skip this review, provider doesn't match
-      }
-      
-      // Service category must match exactly
-      // Both null = match
-      // Both same ID = match
-      // Otherwise = no match
-      bool serviceMatches = false;
-      if (serviceCategoryId == null && reviewServiceCategoryIdInt == null) {
-        serviceMatches = true;
-      } else if (serviceCategoryId != null && reviewServiceCategoryIdInt != null) {
-        serviceMatches = serviceCategoryId == reviewServiceCategoryIdInt;
-      }
-      
-      if (serviceMatches) {
-        print('  ✅ MATCH FOUND!');
-        return true;
-      } else {
-        print('  ❌ Service category mismatch');
-      }
-    }
-    
-    print('  ❌ No match found');
-    return false;
+  /// Booking-based: true if this booking already has a review.
+  bool _hasReviewedBooking(int bookingId) {
+    if (_reviews.isEmpty) return false;
+    return _reviews.any((review) {
+      final rid = review['booking_id'] ?? review['booking']?['id'] ?? review['booking'];
+      if (rid == null) return false;
+      return rid == bookingId || rid.toString() == bookingId.toString();
+    });
   }
 
   Future<void> _cancelBooking(Map<String, dynamic> booking) async {
@@ -332,14 +278,14 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
         ? serviceCategoryIdRaw 
         : (serviceCategoryIdRaw != null ? int.tryParse(serviceCategoryIdRaw.toString()) : null);
     
-    print('💬 Review dialog - Provider: $providerId, Service: $serviceCategoryId');
-    
-    if (providerId == null) return;
+    final bookingIdRaw = booking['id'];
+    final bookingId = bookingIdRaw is int ? bookingIdRaw : int.tryParse(bookingIdRaw?.toString() ?? '');
+    if (providerId == null || bookingId == null) return;
 
-    // Check if already reviewed
-    if (_hasReviewed(providerId, serviceCategoryId)) {
+    // Booking-based: one review per booking
+    if (_hasReviewedBooking(bookingId)) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('You have already reviewed this service')),
+        const SnackBar(content: Text('You have already reviewed this booking')),
       );
       return;
     }
@@ -413,17 +359,15 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
                   ? null
                   : () async {
                       final reviewData = {
-                        'provider_id': providerId,
-                        'service_category_id': serviceCategoryId,
+                        'booking_id': bookingId,
                         'rating': selectedRating,
                         'comment': commentController.text.trim(),
                       };
 
                       // Optimistic update: Add review to local list immediately
                       final optimisticReview = {
-                        'id': DateTime.now().millisecondsSinceEpoch, // Temporary ID
-                        'provider_id': providerId,
-                        'service_category_id': serviceCategoryId,
+                        'id': DateTime.now().millisecondsSinceEpoch,
+                        'booking_id': bookingId,
                         'rating': selectedRating,
                         'comment': commentController.text.trim(),
                         'customer_name': 'You',
@@ -516,12 +460,16 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
     return Scaffold(
       backgroundColor: context.backgroundColor,
       body: SafeArea(
+        bottom: false,
         child: Column(
           children: [
             const AppHeader(),
             Expanded(
               child: RefreshIndicator(
-                onRefresh: _loadData,
+                onRefresh: () async {
+                  await _loadData(forceRefresh: true);
+                  BookingCardRefreshNotifier.notifyRefresh();
+                },
                 child: SingleChildScrollView(
                   physics: const AlwaysScrollableScrollPhysics(),
                   padding: const EdgeInsets.all(16),
@@ -869,21 +817,11 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
               
               // For completed or cancelled bookings, show review/delete options
               if (status == 'completed' || status == 'cancelled') {
-                final providerId = booking['provider']?['id'];
-                // Extract service category ID again for this builder
-                dynamic serviceCategoryIdRaw;
-                if (booking['service_category'] is Map) {
-                  serviceCategoryIdRaw = booking['service_category']?['id'];
-                } else {
-                  serviceCategoryIdRaw = booking['service_category'];
-                }
-                final serviceCategoryIdForReview = serviceCategoryIdRaw is int 
-                    ? serviceCategoryIdRaw 
-                    : (serviceCategoryIdRaw != null ? int.tryParse(serviceCategoryIdRaw.toString()) : null);
-                
-                final hasReviewed = status == 'completed' && 
-                                   providerId != null && 
-                                   _hasReviewed(providerId, serviceCategoryIdForReview);
+                final bookingIdRaw = booking['id'];
+                final bookingIdForReview = bookingIdRaw is int ? bookingIdRaw : int.tryParse(bookingIdRaw?.toString() ?? '') ?? 0;
+                final hasReviewed = status == 'completed' &&
+                                   bookingIdForReview != 0 &&
+                                   _hasReviewedBooking(bookingIdForReview);
                 
                 return Column(
                   children: [

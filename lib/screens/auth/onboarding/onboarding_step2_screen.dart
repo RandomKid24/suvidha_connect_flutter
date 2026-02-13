@@ -3,6 +3,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:go_router/go_router.dart';
 import 'package:iconsax/iconsax.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/theme_extensions.dart';
 import '../../../services/api_service.dart';
 import '../../../utils/icon_mapper.dart';
 
@@ -20,11 +21,14 @@ class ServiceCategory {
   });
 
   factory ServiceCategory.fromJson(Map<String, dynamic> json) {
+    final idRaw = json['id'];
+    final id = idRaw is int
+        ? idRaw
+        : (int.tryParse(idRaw?.toString() ?? '') ?? 0);
     return ServiceCategory(
-      id: json['id'],
-      name: json['name'] ?? '',
-      icon: json['icon'] ?? 'category',
-      // Handle both snake_case and camelCase
+      id: id,
+      name: json['name']?.toString() ?? '',
+      icon: json['icon']?.toString() ?? 'category',
       isActive: json['is_active'] ?? json['isActive'] ?? true,
     );
   }
@@ -42,17 +46,28 @@ class _OnboardingStep2ScreenState extends State<OnboardingStep2Screen> {
   Set<int> _selectedServiceIds = {};
   bool _isLoading = false;
   bool _isLoadingServices = true;
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
 
   @override
   void initState() {
     super.initState();
     _loadServices();
+    _searchController.addListener(() {
+      setState(() => _searchQuery = _searchController.text.trim());
+    });
   }
 
-  Future<void> _loadServices() async {
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadServices({bool forceRefresh = false}) async {
     setState(() => _isLoadingServices = true);
     
-    final result = await ApiService.getServiceCategories(forceRefresh: false);
+    final result = await ApiService.getServiceCategories(forceRefresh: forceRefresh);
     
     if (mounted) {
       setState(() => _isLoadingServices = false);
@@ -118,12 +133,6 @@ class _OnboardingStep2ScreenState extends State<OnboardingStep2Screen> {
         
         if (_services.isEmpty) {
           print('⚠️ [OnboardingStep2] No services after filtering!');
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('No services available. Please contact support.'),
-              duration: Duration(seconds: 3),
-            ),
-          );
         }
       } else {
         print('❌ Failed to load services: ${result['error']}');
@@ -147,6 +156,227 @@ class _OnboardingStep2ScreenState extends State<OnboardingStep2Screen> {
         _selectedServiceIds.add(serviceId);
       }
     });
+  }
+
+  List<ServiceCategory> get _filteredServices {
+    if (_searchQuery.isEmpty) return _services;
+    final q = _searchQuery.toLowerCase();
+    return _services.where((s) => s.name.toLowerCase().contains(q)).toList();
+  }
+
+  Future<void> _showCreateCategoryDialog() async {
+    final nameController = TextEditingController();
+    final descController = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+    final payload = await showDialog<Map<String, String>>(
+      context: context,
+      barrierDismissible: true,
+      barrierColor: Colors.black54,
+      builder: (dialogContext) => Dialog(
+        backgroundColor: context.cardColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        elevation: 8,
+        child: Form(
+          key: formKey,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Header with icon
+                Center(
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withOpacity(0.12),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(Iconsax.category_2, size: 32, color: AppColors.primary),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Add your own category',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                    color: context.foregroundColor,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Create a new service category to offer',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: context.mutedForegroundColor,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                TextFormField(
+                  controller: nameController,
+                  decoration: InputDecoration(
+                    labelText: 'Category name',
+                    hintText: 'e.g. Home cleaning',
+                    labelStyle: TextStyle(color: context.mutedForegroundColor),
+                    hintStyle: TextStyle(color: context.mutedForegroundColor.withOpacity(0.7)),
+                    filled: true,
+                    fillColor: context.backgroundColor,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: context.borderColor),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: context.borderColor),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: AppColors.primary, width: 2),
+                    ),
+                    errorBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: AppColors.error),
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  ),
+                  style: TextStyle(color: context.foregroundColor, fontSize: 15),
+                  validator: (v) {
+                    if (v == null || v.trim().isEmpty) return 'Name is required';
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: descController,
+                  decoration: InputDecoration(
+                    labelText: 'Description (optional)',
+                    hintText: 'Brief description of this category',
+                    labelStyle: TextStyle(color: context.mutedForegroundColor),
+                    hintStyle: TextStyle(color: context.mutedForegroundColor.withOpacity(0.7)),
+                    filled: true,
+                    fillColor: context.backgroundColor,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: context.borderColor),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: context.borderColor),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: AppColors.primary, width: 2),
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  ),
+                  style: TextStyle(color: context.foregroundColor, fontSize: 15),
+                  maxLines: 2,
+                  minLines: 1,
+                ),
+                const SizedBox(height: 28),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextButton(
+                        onPressed: () => Navigator.of(dialogContext).pop(),
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          foregroundColor: context.mutedForegroundColor,
+                        ),
+                        child: const Text('Cancel'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      flex: 2,
+                      child: FilledButton(
+                        onPressed: () {
+                          if (!formKey.currentState!.validate()) return;
+                          Navigator.of(dialogContext).pop({
+                            'name': nameController.text.trim(),
+                            'description': descController.text.trim(),
+                          });
+                        },
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          elevation: 0,
+                        ),
+                        child: const Text('Add category'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    // Defer dispose until after the dialog is fully removed from the tree
+    // to avoid "TextEditingController was used after being disposed"
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      nameController.dispose();
+      descController.dispose();
+    });
+    if (payload == null || !mounted) return;
+    try {
+      final res = await ApiService.createServiceCategory(
+        name: payload['name']!,
+        description: payload['description']!.isEmpty ? null : payload['description'],
+      );
+      if (!mounted) return;
+      if (res['success'] == true) {
+        // Backend returns the category object directly (may be in res['data'] or top-level)
+        final raw = res['data'];
+        Map<String, dynamic>? data;
+        if (raw is Map<String, dynamic>) {
+          data = raw;
+        } else if (raw is Map) {
+          data = Map<String, dynamic>.from(raw);
+        }
+        int? id;
+        if (data != null && data.containsKey('id')) {
+          final idVal = data['id'];
+          if (idVal is int) {
+            id = idVal;
+          } else if (idVal != null) {
+            id = int.tryParse(idVal.toString());
+          }
+        }
+        await _loadServices(forceRefresh: true);
+        if (!mounted) return;
+        if (id != null) {
+          final idValue = id!;
+          setState(() => _selectedServiceIds.add(idValue));
+        }
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Category added and selected')),
+          );
+        }
+      } else {
+        final err = res['error'];
+        final msg = err is Map ? (err['error'] ?? err['message']) : 'Failed to create category';
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(msg?.toString() ?? 'Failed to create category')),
+          );
+        }
+      }
+    } catch (e, stack) {
+      debugPrint('Create category error: $e\n$stack');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Something went wrong: ${e.toString()}')),
+        );
+      }
+    }
   }
 
   Future<void> _handleContinue() async {
@@ -183,14 +413,24 @@ class _OnboardingStep2ScreenState extends State<OnboardingStep2Screen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: context.backgroundColor,
       appBar: AppBar(
-        backgroundColor: AppColors.background,
+        backgroundColor: context.backgroundColor,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        iconTheme: IconThemeData(color: context.foregroundColor),
+        title: Text(
+          'Step 2: Services',
+          style: TextStyle(
+            color: context.foregroundColor,
+            fontSize: 18,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
         leading: IconButton(
-          icon: const Icon(Iconsax.arrow_left),
+          icon: Icon(Iconsax.arrow_left, color: context.foregroundColor),
           onPressed: () => context.go('/provider-onboarding/step1'),
         ),
-        title: const Text('Step 2: Services'),
       ),
       body: SafeArea(
         child: Column(
@@ -224,7 +464,7 @@ class _OnboardingStep2ScreenState extends State<OnboardingStep2Screen> {
                     child: Container(
                       height: 4,
                       decoration: BoxDecoration(
-                        color: AppColors.border,
+                        color: context.borderColor,
                         borderRadius: BorderRadius.circular(2),
                       ),
                     ),
@@ -244,11 +484,12 @@ class _OnboardingStep2ScreenState extends State<OnboardingStep2Screen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
+                    Text(
                       'Select Your Services',
                       style: TextStyle(
                         fontSize: 24,
                         fontWeight: FontWeight.bold,
+                        color: context.foregroundColor,
                       ),
                     ).animate().fadeIn(duration: 500.ms).moveY(begin: 20, end: 0),
                     
@@ -257,18 +498,72 @@ class _OnboardingStep2ScreenState extends State<OnboardingStep2Screen> {
                     Text(
                       'Choose the services you provide',
                       style: TextStyle(
-                        color: AppColors.mutedForeground,
+                        color: context.mutedForegroundColor,
                         fontSize: 14,
                       ),
                     ).animate().fadeIn(duration: 500.ms, delay: 100.ms).moveY(begin: 20, end: 0),
                     
-                    const SizedBox(height: 24),
+                    const SizedBox(height: 20),
+                    // Search bar
+                    if (!_isLoadingServices && _services.isNotEmpty)
+                      TextField(
+                        controller: _searchController,
+                        decoration: InputDecoration(
+                          hintText: 'Search categories...',
+                          prefixIcon: Icon(Iconsax.search_normal_1, color: context.mutedForegroundColor, size: 20),
+                          filled: true,
+                          fillColor: context.cardColor,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide(color: context.borderColor),
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        ),
+                        style: TextStyle(color: context.foregroundColor, fontSize: 14),
+                        onChanged: (_) => setState(() {}),
+                      ).animate().fadeIn(duration: 300.ms),
+                    if (!_isLoadingServices && _services.isNotEmpty) const SizedBox(height: 12),
+                    // Add your own category button (when list exists)
+                    if (!_isLoadingServices && _services.isNotEmpty)
+                      Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          onTap: _showCreateCategoryDialog,
+                          borderRadius: BorderRadius.circular(12),
+                          child: Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+                            decoration: BoxDecoration(
+                              color: context.cardColor,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: AppColors.primary.withOpacity(0.6), width: 1.5),
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Iconsax.add_circle, size: 22, color: AppColors.primary),
+                                const SizedBox(width: 10),
+                                Text(
+                                  'Add your own category',
+                                  style: TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w600,
+                                    color: AppColors.primary,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ).animate().fadeIn(duration: 300.ms),
+                    if (!_isLoadingServices && _services.isNotEmpty) const SizedBox(height: 16),
+                    const SizedBox(height: 8),
 
                     if (_isLoadingServices)
-                      const Center(
+                      Center(
                         child: Padding(
-                          padding: EdgeInsets.all(32.0),
-                          child: CircularProgressIndicator(),
+                          padding: const EdgeInsets.all(32.0),
+                          child: CircularProgressIndicator(color: AppColors.primary),
                         ),
                       )
                     else if (_services.isEmpty)
@@ -281,25 +576,64 @@ class _OnboardingStep2ScreenState extends State<OnboardingStep2Screen> {
                               Icon(
                                 Iconsax.category,
                                 size: 64,
-                                color: AppColors.mutedForeground,
+                                color: context.mutedForegroundColor,
                               ),
                               const SizedBox(height: 16),
                               Text(
-                                'No services available',
+                                'No categories yet',
                                 style: TextStyle(
                                   fontSize: 18,
                                   fontWeight: FontWeight.w600,
-                                  color: AppColors.foreground,
+                                  color: context.foregroundColor,
                                 ),
                               ),
                               const SizedBox(height: 8),
                               Text(
-                                'Please contact support or try again later',
+                                'Create your own category to get started',
                                 style: TextStyle(
                                   fontSize: 14,
-                                  color: AppColors.mutedForeground,
+                                  color: context.mutedForegroundColor,
                                 ),
                                 textAlign: TextAlign.center,
+                              ),
+                              const SizedBox(height: 24),
+                              FilledButton.icon(
+                                onPressed: _showCreateCategoryDialog,
+                                icon: const Icon(Iconsax.add_circle, size: 22),
+                                label: const Text('Create category'),
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: AppColors.primary,
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 16),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                  elevation: 0,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
+                    else if (_filteredServices.isEmpty)
+                      Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(32.0),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Iconsax.search_normal_1, size: 48, color: context.mutedForegroundColor),
+                              const SizedBox(height: 12),
+                              Text(
+                                'No categories match "$_searchQuery"',
+                                style: TextStyle(fontSize: 16, color: context.foregroundColor),
+                                textAlign: TextAlign.center,
+                              ),
+                              const SizedBox(height: 8),
+                              TextButton(
+                                onPressed: () {
+                                  _searchController.clear();
+                                  setState(() => _searchQuery = '');
+                                },
+                                child: const Text('Clear search'),
                               ),
                             ],
                           ),
@@ -315,20 +649,20 @@ class _OnboardingStep2ScreenState extends State<OnboardingStep2Screen> {
                           mainAxisSpacing: 12,
                           childAspectRatio: 1.2,
                         ),
-                        itemCount: _services.length,
+                        itemCount: _filteredServices.length,
                         itemBuilder: (context, index) {
-                          final service = _services[index];
+                          final service = _filteredServices[index];
                           final isSelected = _selectedServiceIds.contains(service.id);
                           
                           return GestureDetector(
                             onTap: () => _toggleService(service.id),
                             child: Container(
                               decoration: BoxDecoration(
-                                color: isSelected ? AppColors.primary : AppColors.card,
+                                color: isSelected ? AppColors.primary : context.cardColor,
                                 border: Border.all(
                                   color: isSelected
                                       ? AppColors.primary
-                                      : AppColors.border,
+                                      : context.borderColor,
                                   width: isSelected ? 2 : 1,
                                 ),
                                 borderRadius: BorderRadius.circular(12),
@@ -351,7 +685,7 @@ class _OnboardingStep2ScreenState extends State<OnboardingStep2Screen> {
                                       fontWeight: FontWeight.w600,
                                       color: isSelected
                                           ? Colors.white
-                                          : AppColors.foreground,
+                                          : context.foregroundColor,
                                     ),
                                     textAlign: TextAlign.center,
                                   ),

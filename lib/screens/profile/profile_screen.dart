@@ -38,11 +38,17 @@ class _ProfileScreenState extends State<ProfileScreen> with WidgetsBindingObserv
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // Refresh profile when app comes back to foreground
-    if (state == AppLifecycleState.resumed) {
+    // Use a debounce to prevent rapid lifecycle changes from causing rebuild loops
+    if (state == AppLifecycleState.resumed && mounted) {
       // Only refresh if it's been more than 5 seconds since last load
       if (_lastLoadTime == null || 
           DateTime.now().difference(_lastLoadTime!) > const Duration(seconds: 5)) {
-        _loadUserData(forceRefresh: true);
+        // Schedule the load to avoid calling setState during build
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            _loadUserData(forceRefresh: true);
+          }
+        });
       }
     }
   }
@@ -167,13 +173,17 @@ class _ProfileScreenState extends State<ProfileScreen> with WidgetsBindingObserv
     return Scaffold(
       backgroundColor: context.backgroundColor,
       body: SafeArea(
+        bottom: false,
         child: Column(
           children: [
             const AppHeader(),
             Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(16),
-                child: Column(
+              child: RefreshIndicator(
+                onRefresh: () => _loadUserData(forceRefresh: true),
+                child: SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
                   children: [
                     // Profile Header
                     const Text(
@@ -313,6 +323,7 @@ class _ProfileScreenState extends State<ProfileScreen> with WidgetsBindingObserv
                   ],
                 ),
               ),
+            ),
             ),
           ],
         ),

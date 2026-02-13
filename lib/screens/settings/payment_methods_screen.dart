@@ -3,6 +3,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:iconsax/iconsax.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/theme_extensions.dart';
+import '../../core/wallet_refresh.dart';
 import '../../services/api_service.dart';
 import '../../widgets/app_header.dart';
 
@@ -32,16 +33,22 @@ class _PaymentMethodsScreenState extends State<PaymentMethodsScreen> {
     super.initState();
     _loadBankAccounts(forceRefresh: false);
     _loadWalletBalance(forceRefresh: false);
+    WalletRefreshNotifier.trigger.addListener(_onWalletRefreshRequested);
   }
 
   @override
   void dispose() {
+    WalletRefreshNotifier.trigger.removeListener(_onWalletRefreshRequested);
     _accountHolderNameController.dispose();
     _accountNumberController.dispose();
     _ifscCodeController.dispose();
     _bankNameController.dispose();
     _branchNameController.dispose();
     super.dispose();
+  }
+
+  void _onWalletRefreshRequested() {
+    if (mounted) _loadWalletBalance(forceRefresh: true);
   }
 
   Future<void> _loadBankAccounts({bool forceRefresh = false}) async {
@@ -360,20 +367,27 @@ class _PaymentMethodsScreenState extends State<PaymentMethodsScreen> {
     return Scaffold(
       backgroundColor: context.backgroundColor,
       body: SafeArea(
+        bottom: false,
         child: Column(
           children: [
             AppHeader(title: 'Payment Methods'),
             Expanded(
-              child: SingleChildScrollView(
-                padding: EdgeInsets.only(
-                  left: 16,
-                  right: 16,
-                  top: 16,
-                  bottom: 16 + MediaQuery.of(context).padding.bottom,
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
+              child: RefreshIndicator(
+                onRefresh: () async {
+                  await _loadWalletBalance(forceRefresh: true);
+                  await _loadBankAccounts(forceRefresh: true);
+                },
+                child: SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: EdgeInsets.only(
+                    left: 16,
+                    right: 16,
+                    top: 16,
+                    bottom: 16 + MediaQuery.of(context).padding.bottom,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
                     // Wallet Balance
                     Container(
                       padding: const EdgeInsets.all(16),
@@ -564,6 +578,7 @@ class _PaymentMethodsScreenState extends State<PaymentMethodsScreen> {
                           ),
                   ],
                 ),
+              ),
               ),
             ),
           ],

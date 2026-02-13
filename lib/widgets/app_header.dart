@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:iconsax/iconsax.dart';
 import '../core/theme/app_colors.dart';
 import '../core/theme/theme_extensions.dart';
+import '../core/wallet_refresh.dart';
 import '../services/api_service.dart';
 
 class AppHeader extends StatefulWidget {
@@ -38,6 +39,17 @@ class _AppHeaderState extends State<AppHeader> {
       _isLoadingLocation = false;
     }
     _loadWalletBalance();
+    WalletRefreshNotifier.trigger.addListener(_onWalletRefreshRequested);
+  }
+
+  @override
+  void dispose() {
+    WalletRefreshNotifier.trigger.removeListener(_onWalletRefreshRequested);
+    super.dispose();
+  }
+
+  void _onWalletRefreshRequested() {
+    if (mounted) _loadWalletBalance(forceRefresh: true);
   }
   
   Future<void> _loadWalletBalance({bool forceRefresh = false}) async {
@@ -312,6 +324,9 @@ class _WalletDialogState extends State<WalletDialog> {
   void initState() {
     super.initState();
     _loadBalance();
+    _amountController.addListener(() {
+      if (mounted) setState(() {});
+    });
   }
   
   @override
@@ -365,151 +380,246 @@ class _WalletDialogState extends State<WalletDialog> {
     }
   }
   
+  static const List<double> _quickAmounts = [100, 500, 1000, 2000, 5000];
+
   @override
   Widget build(BuildContext context) {
+    final maxHeight = MediaQuery.of(context).size.height * 0.75;
     return Dialog(
       backgroundColor: context.backgroundColor,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'My Wallet',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    color: context.foregroundColor,
-                  ),
-                ),
-                IconButton(
-                  icon: Icon(Iconsax.close_circle, color: context.mutedForegroundColor),
-                  onPressed: () => Navigator.pop(context),
-                ),
-              ],
-            ),
-            const SizedBox(height: 20),
-            // Current Balance
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: AppColors.primary.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: AppColors.primary),
-              ),
-              child: Column(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 48),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: maxHeight),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: SingleChildScrollView(
+            child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
                 children: [
-                  Text(
-                    'Current Balance',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: context.mutedForegroundColor,
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(Iconsax.wallet_3, color: AppColors.primary, size: 24),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'My Wallet',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: context.foregroundColor,
+                      ),
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  _isLoading
-                    ? const CircularProgressIndicator()
-                    : Text(
-                        'Rs. ${(_balance ?? 0).toStringAsFixed(2)}/-',
-                        style: TextStyle(
-                          fontSize: 28,
-                          fontWeight: FontWeight.bold,
-                          color: AppColors.primary,
-                        ),
-                      ),
+                  IconButton(
+                    icon: Icon(Iconsax.close_circle, color: context.mutedForegroundColor, size: 22),
+                    onPressed: () => Navigator.pop(context),
+                    style: IconButton.styleFrom(
+                      backgroundColor: context.mutedColor.withOpacity(0.5),
+                    ),
+                  ),
                 ],
               ),
-            ),
-            const SizedBox(height: 20),
-            // Add Money Section
-            Text(
-              'Add Money',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                color: context.foregroundColor,
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _amountController,
-              decoration: InputDecoration(
-                labelText: 'Amount (Rs.)',
-                prefixText: 'Rs. ',
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: BorderSide(color: context.borderColor),
+              const SizedBox(height: 20),
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      AppColors.primary.withOpacity(0.15),
+                      AppColors.primary.withOpacity(0.06),
+                    ],
+                  ),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: AppColors.primary.withOpacity(0.3)),
                 ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: BorderSide(color: context.borderColor),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: BorderSide(color: AppColors.primary),
-                ),
-              ),
-              keyboardType: TextInputType.number,
-            ),
-            const SizedBox(height: 12),
-            // Payment Method
-            DropdownButtonFormField<String>(
-              value: _selectedPaymentMethod,
-              decoration: InputDecoration(
-                labelText: 'Payment Method',
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: BorderSide(color: context.borderColor),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: BorderSide(color: context.borderColor),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: BorderSide(color: AppColors.primary),
+                child: Column(
+                  children: [
+                    Text(
+                      'Current Balance',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: context.mutedForegroundColor,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    _isLoading
+                        ? const SizedBox(
+                            height: 36,
+                            child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                          )
+                        : Text(
+                            'Rs. ${(_balance ?? 0).toStringAsFixed(0)}',
+                            style: TextStyle(
+                              fontSize: 28,
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.primary,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                  ],
                 ),
               ),
-              items: _paymentMethods.map((method) {
-                return DropdownMenuItem(
-                  value: method,
-                  child: Text(method),
-                );
-              }).toList(),
-              onChanged: (value) {
-                if (value != null) {
-                  setState(() => _selectedPaymentMethod = value);
-                }
-              },
-            ),
-            const SizedBox(height: 20),
-            ElevatedButton(
-              onPressed: _addMoney,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primary,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 14),
+              const SizedBox(height: 24),
+              Text(
+                'Add money',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: context.foregroundColor,
+                ),
               ),
-              child: const Text('Add Money (Simulation)'),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'Note: This is a simulation. No real money will be charged.',
-              style: TextStyle(
-                fontSize: 11,
-                color: context.mutedForegroundColor,
-                fontStyle: FontStyle.italic,
+              const SizedBox(height: 10),
+              TextField(
+                controller: _amountController,
+                decoration: InputDecoration(
+                  hintText: 'Enter amount',
+                  prefixIcon: const Icon(Iconsax.dollar_circle, size: 20, color: AppColors.primary),
+                  prefixText: 'Rs. ',
+                  prefixStyle: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: context.foregroundColor,
+                  ),
+                  filled: true,
+                  fillColor: context.mutedColor.withOpacity(0.4),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none,
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: context.borderColor),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: AppColors.primary, width: 2),
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                ),
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
               ),
-              textAlign: TextAlign.center,
-            ),
-          ],
+              const SizedBox(height: 12),
+              Text(
+                'Quick add',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: context.mutedForegroundColor,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: _quickAmounts.map((amount) {
+                  final entered = double.tryParse(_amountController.text.trim());
+                  final isSelected = entered != null && entered == amount;
+                  return GestureDetector(
+                    onTap: () {
+                      setState(() {
+                        _amountController.text = amount.toStringAsFixed(0);
+                      });
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: isSelected
+                            ? AppColors.primary.withOpacity(0.2)
+                            : context.mutedColor.withOpacity(0.5),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: isSelected ? AppColors.primary : context.borderColor,
+                          width: isSelected ? 2 : 1,
+                        ),
+                      ),
+                      child: Text(
+                        'Rs. ${amount.toStringAsFixed(0)}',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: isSelected ? AppColors.primary : context.foregroundColor,
+                        ),
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Payment method',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: context.mutedForegroundColor,
+                ),
+              ),
+              const SizedBox(height: 6),
+              DropdownButtonFormField<String>(
+                value: _selectedPaymentMethod,
+                decoration: InputDecoration(
+                  filled: true,
+                  fillColor: context.mutedColor.withOpacity(0.3),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none,
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: context.borderColor),
+                ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: AppColors.primary, width: 2),
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                ),
+                items: _paymentMethods.map((method) {
+                  return DropdownMenuItem(
+                    value: method,
+                    child: Text(method, style: TextStyle(fontSize: 14, color: context.foregroundColor)),
+                  );
+                }).toList(),
+                onChanged: (value) {
+                  if (value != null) setState(() => _selectedPaymentMethod = value);
+                },
+              ),
+              const SizedBox(height: 20),
+              ElevatedButton.icon(
+                onPressed: _addMoney,
+                icon: const Icon(Iconsax.add, size: 20),
+                label: const Text('Add Money'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  elevation: 0,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                'Simulation only. No real payment will be made.',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: context.mutedForegroundColor,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
         ),
       ),
+    ),
     );
   }
 }

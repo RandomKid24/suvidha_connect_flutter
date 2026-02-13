@@ -37,32 +37,28 @@ class _SplashScreenState extends State<SplashScreen> {
         final userData = userInfoResult['data'];
         
         if (userData['role'] == 'provider') {
-          // Check provider verification status
-          final statusResult = await ApiService.getProviderStatus(forceRefresh: false);
-          if (statusResult['success'] == true) {
-            final statusData = statusResult['data'];
-            
-            // Check if onboarding is complete
-            if (statusData['onboarding_complete'] == false) {
-              // Onboarding not complete, redirect to onboarding step 1
-              if (mounted) context.go('/provider-onboarding/step1');
+          final statusResult = await ApiService.getProviderStatus(forceRefresh: true);
+          if (statusResult['success'] == true && statusResult['data'] != null) {
+            final statusData = statusResult['data'] as Map<String, dynamic>;
+            final onboardingComplete = statusData['is_onboarding_complete'] ?? statusData['onboarding_complete'] ?? true;
+            final canLogin = statusData['can_login'] == true;
+            final step = statusData['onboarding_step'] is int
+                ? (statusData['onboarding_step'] as int).clamp(1, 3)
+                : 1;
+
+            if (onboardingComplete == false) {
+              if (mounted) context.go('/provider-onboarding/step$step');
               return;
             }
-            
-            if (statusData['can_login'] == true) {
-              // Provider is verified, go to home
-              if (mounted) context.go('/home');
-              return;
-            } else {
-              // Provider not verified, show role select
-              if (mounted) context.go('/role-select');
+            if (!canLogin) {
+              if (mounted) context.go('/provider-pending-approval');
               return;
             }
+            if (mounted) context.go('/home');
+            return;
           } else {
-            // Status check failed, assume onboarding might be incomplete
-            // Try to get status to see if provider exists
-            if (statusResult['error']?['message']?.toString().contains('not found') == true) {
-              // Provider profile doesn't exist, redirect to onboarding
+            if (statusResult['error']?['message']?.toString().toLowerCase().contains('not found') == true ||
+                statusResult['error']?['message']?.toString().toLowerCase().contains('complete onboarding') == true) {
               if (mounted) context.go('/provider-onboarding/step1');
               return;
             }

@@ -8,6 +8,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/theme_extensions.dart';
+import '../../core/booking_card_refresh.dart';
 import '../../services/api_service.dart';
 import '../../utils/icon_mapper.dart';
 import '../../widgets/app_header.dart';
@@ -49,13 +50,13 @@ class _SavedServicesScreenState extends State<SavedServicesScreen> {
     super.dispose();
   }
 
-  Future<void> _loadData() async {
+  Future<void> _loadData({bool forceRefresh = false}) async {
     setState(() {
       _isLoading = true;
     });
 
-    // Load service categories (use cache by default)
-    final categoriesResult = await ApiService.getServiceCategories(forceRefresh: false);
+    // Load service categories
+    final categoriesResult = await ApiService.getServiceCategories(forceRefresh: forceRefresh);
     if (mounted) {
       if (categoriesResult['success'] == true) {
         final data = categoriesResult['data'];
@@ -71,10 +72,10 @@ class _SavedServicesScreenState extends State<SavedServicesScreen> {
     await _getUserLocation();
 
     // Load providers
-    await _loadProviders();
+    await _loadProviders(forceRefresh: forceRefresh);
   }
 
-  Future<void> _loadProviders() async {
+  Future<void> _loadProviders({bool forceRefresh = false}) async {
     final searchQuery = _searchController.text.isNotEmpty ? _searchController.text : null;
     print('🔍 [Saved Services] Searching for: "$searchQuery"');
     print('📍 Service category ID: $_selectedServiceId');
@@ -87,7 +88,7 @@ class _SavedServicesScreenState extends State<SavedServicesScreen> {
       latitude: _userLocation != null ? _userLocation!.latitude : null,
       longitude: _userLocation != null ? _userLocation!.longitude : null,
       radius: _userLocation != null ? _radius : null, // Apply radius filter when location is available
-      forceRefresh: false, // Use cache by default
+      forceRefresh: forceRefresh, // Force refresh when user changes filter so results update
     );
 
     if (mounted) {
@@ -158,7 +159,7 @@ class _SavedServicesScreenState extends State<SavedServicesScreen> {
   }
 
   void _applyFilters() {
-    _loadProviders();
+    _loadProviders(forceRefresh: true);
   }
 
   @override
@@ -166,8 +167,17 @@ class _SavedServicesScreenState extends State<SavedServicesScreen> {
     return Scaffold(
       backgroundColor: context.backgroundColor,
       body: SafeArea(
-        child: Column(
-          children: [
+        bottom: false,
+        child: RefreshIndicator(
+          onRefresh: () async {
+            await _loadData(forceRefresh: true);
+            BookingCardRefreshNotifier.notifyRefresh();
+          },
+          child: SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
             const AppHeader(),
             
             // Title
@@ -281,7 +291,7 @@ class _SavedServicesScreenState extends State<SavedServicesScreen> {
                           _selectedServiceId = value;
                           _isLoading = true;
                         });
-                        await _loadProviders();
+                        await _loadProviders(forceRefresh: true);
                       },
                     ),
                   ),
@@ -330,7 +340,7 @@ class _SavedServicesScreenState extends State<SavedServicesScreen> {
                             _radius = value;
                             _isLoading = true;
                           });
-                          await _loadProviders();
+                          await _loadProviders(forceRefresh: true);
                         }
                       },
                     ),
@@ -338,9 +348,9 @@ class _SavedServicesScreenState extends State<SavedServicesScreen> {
                 ],
               ),
             ),
-            
-            // Map
-            Expanded(
+            // Map - use fixed height so the list is scrollable and pull-to-refresh works
+            SizedBox(
+              height: MediaQuery.of(context).size.height * 0.55,
               child: _isLoading
                   ? const Center(child: CircularProgressIndicator())
                   : Stack(
@@ -393,7 +403,9 @@ class _SavedServicesScreenState extends State<SavedServicesScreen> {
                       ],
                     ),
             ),
-          ],
+              ],
+            ),
+          ),
         ),
       ),
     );

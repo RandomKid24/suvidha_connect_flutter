@@ -8,6 +8,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/theme_extensions.dart';
 import '../../services/api_service.dart';
 import '../../widgets/app_header.dart';
+import '../../widgets/provider_avatar.dart';
 
 class MyServicesScreen extends StatefulWidget {
   const MyServicesScreen({super.key});
@@ -191,6 +192,7 @@ class _MyServicesScreenState extends State<MyServicesScreen> {
     return Scaffold(
       backgroundColor: context.backgroundColor,
       body: SafeArea(
+        bottom: false,
         child: Column(
           children: [
             const AppHeader(),
@@ -556,32 +558,10 @@ class _MyServicesScreenState extends State<MyServicesScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Provider image
-            ClipRRect(
+            ProviderAvatar(
+              imageUrl: profilePhoto,
+              size: 48,
               borderRadius: BorderRadius.circular(24),
-              child: profilePhoto != null
-                  ? CachedNetworkImage(
-                      imageUrl: profilePhoto,
-                      width: 48,
-                      height: 48,
-                      fit: BoxFit.cover,
-                      placeholder: (context, url) => Container(
-                        width: 48,
-                        height: 48,
-                        color: context.mutedColor,
-                      ),
-                      errorWidget: (context, url, error) => Container(
-                        width: 48,
-                        height: 48,
-                        color: context.mutedColor,
-                        child: const Icon(Iconsax.user),
-                      ),
-                    )
-                  : Container(
-                      width: 48,
-                      height: 48,
-                      color: context.mutedColor,
-                      child: const Icon(Iconsax.user),
-                    ),
             ),
             
             const SizedBox(width: 12),

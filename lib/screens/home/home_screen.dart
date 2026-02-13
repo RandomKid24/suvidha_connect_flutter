@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:iconsax/iconsax.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/theme_extensions.dart';
+import '../../core/booking_card_refresh.dart';
 import '../../services/api_service.dart';
 import '../../widgets/app_header.dart';
 import '../../utils/icon_mapper.dart';
@@ -103,7 +104,8 @@ class _HomeScreenState extends State<HomeScreen> {
           servicesList = data['results'] as List;
         }
         setState(() {
-          _services = servicesList.where((s) => s['is_active'] == true).toList();
+          final active = servicesList.where((s) => s['is_active'] == true).toList();
+          _services = active.length > 9 ? active.take(9).toList() : active;
         });
       }
     }
@@ -129,6 +131,7 @@ class _HomeScreenState extends State<HomeScreen> {
       return Scaffold(
         backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         body: const SafeArea(
+          bottom: false,
           child: Center(
             child: CircularProgressIndicator(),
           ),
@@ -139,6 +142,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: SafeArea(
+        bottom: false,
         child: Column(
           children: [
             const AppHeader(),
@@ -151,8 +155,10 @@ class _HomeScreenState extends State<HomeScreen> {
                     await _loadServices(forceRefresh: true);
                     await _loadReviews(forceRefresh: true);
                   }
+                  BookingCardRefreshNotifier.notifyRefresh();
                 },
                 child: SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
                   padding: const EdgeInsets.all(16),
                   child: _userRole == 'provider' 
                     ? _buildProviderHome(context)

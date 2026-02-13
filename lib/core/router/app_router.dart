@@ -2,12 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../services/api_service.dart';
+import '../../core/theme/app_colors.dart';
 import '../../core/theme/theme_extensions.dart';
 import '../../screens/splash/splash_screen.dart';
 import '../../screens/splash/role_select_screen.dart';
 import '../../screens/auth/login_screen.dart';
 import '../../screens/auth/signup_screen.dart';
+import '../../screens/auth/forgot_password_screen.dart';
+import '../../screens/auth/verify_email_screen.dart';
 import '../../screens/auth/provider_onboarding_screen.dart';
+import '../../screens/auth/provider_pending_approval_screen.dart';
 import '../../screens/auth/onboarding/onboarding_step1_screen.dart';
 import '../../screens/auth/onboarding/onboarding_step2_screen.dart';
 import '../../screens/auth/onboarding/onboarding_step3_screen.dart';
@@ -35,8 +39,14 @@ import '../../screens/legal/privacy_policy_screen.dart';
 import '../../screens/legal/about_us_screen.dart';
 import '../../widgets/bottom_nav.dart';
 
+import '../../core/booking_card_refresh.dart';
+import '../../core/wallet_refresh.dart';
+
 final _rootNavigatorKey = GlobalKey<NavigatorState>();
-final _shellNavigatorKey = GlobalKey<NavigatorState>();
+final _shellNavigatorKey = GlobalKey<NavigatorState>(debugLabel: 'shell');
+
+/// Exposed for system back button handling in main.dart (check canPop).
+GlobalKey<NavigatorState> get appRootNavigatorKey => _rootNavigatorKey;
 
 final appRouter = GoRouter(
   navigatorKey: _rootNavigatorKey,
@@ -74,12 +84,34 @@ final appRouter = GoRouter(
       builder: (context, state) => const OnboardingStep3Screen(),
     ),
 
+    // Provider pending admin approval (onboarding done, not yet approved)
+    GoRoute(
+      path: '/provider-pending-approval',
+      builder: (context, state) => const ProviderPendingApprovalScreen(),
+    ),
+
     // Login
     GoRoute(
       path: '/login',
       builder: (context, state) {
         final role = state.uri.queryParameters['role'];
         return LoginScreen(role: role);
+      },
+    ),
+
+    // Forgot Password (email → code → new password)
+    GoRoute(
+      path: '/forgot-password',
+      builder: (context, state) => const ForgotPasswordScreen(),
+    ),
+
+    // Verify Email (after signup or when login blocked for unverified)
+    GoRoute(
+      path: '/verify-email',
+      builder: (context, state) {
+        final email = state.uri.queryParameters['email'];
+        final role = state.uri.queryParameters['role'];
+        return VerifyEmailScreen(email: email, role: role);
       },
     ),
 
@@ -95,134 +127,104 @@ final appRouter = GoRouter(
     // Main App Shell with Bottom Navigation
     ShellRoute(
       navigatorKey: _shellNavigatorKey,
-      builder: (context, state, child) {
-        return MainShell(child: child);
+      pageBuilder: (context, state, child) {
+        return NoTransitionPage<void>(
+          child: MainShell(child: child),
+        );
       },
       routes: [
         // Home
         GoRoute(
           path: '/home',
-          pageBuilder: (context, state) => const NoTransitionPage(
-            child: HomeScreen(),
-          ),
+          builder: (context, state) => const HomeScreen(),
         ),
 
         // Saved Services
         GoRoute(
           path: '/saved',
-          pageBuilder: (context, state) => const NoTransitionPage(
-            child: SavedServicesScreen(),
-          ),
+          builder: (context, state) => const SavedServicesScreen(),
         ),
 
         // My Services
         GoRoute(
           path: '/services',
-          pageBuilder: (context, state) => const NoTransitionPage(
-            child: MyServicesScreen(),
-          ),
+          builder: (context, state) => const MyServicesScreen(),
         ),
 
         // Notifications
         GoRoute(
           path: '/notifications',
-          pageBuilder: (context, state) => const NoTransitionPage(
-            child: NotificationsScreen(),
-          ),
+          builder: (context, state) => const NotificationsScreen(),
         ),
 
         // Profile
         GoRoute(
           path: '/profile',
-          pageBuilder: (context, state) => const NoTransitionPage(
-            child: ProfileScreen(),
-          ),
+          builder: (context, state) => const ProfileScreen(),
         ),
 
         // Provider Requests
         GoRoute(
           path: '/requests',
-          pageBuilder: (context, state) => const NoTransitionPage(
-            child: ProviderRequestsScreen(),
-          ),
+          builder: (context, state) => const ProviderRequestsScreen(),
         ),
 
         // My Bookings
         GoRoute(
           path: '/my-bookings',
-          pageBuilder: (context, state) => const NoTransitionPage(
-            child: MyBookingsScreen(),
-          ),
+          builder: (context, state) => const MyBookingsScreen(),
         ),
 
         // Saved Addresses
         GoRoute(
           path: '/addresses',
-          pageBuilder: (context, state) => const NoTransitionPage(
-            child: SavedAddressesScreen(),
-          ),
+          builder: (context, state) => const SavedAddressesScreen(),
         ),
 
         // Add Address
         GoRoute(
           path: '/add-address',
-          pageBuilder: (context, state) => const NoTransitionPage(
-            child: AddAddressScreen(),
-          ),
+          builder: (context, state) => const AddAddressScreen(),
         ),
 
         // Reviews
         GoRoute(
           path: '/reviews',
-          pageBuilder: (context, state) => const NoTransitionPage(
-            child: ReviewsScreen(),
-          ),
+          builder: (context, state) => const ReviewsScreen(),
         ),
 
         // Settings
         GoRoute(
           path: '/settings',
-          pageBuilder: (context, state) => const NoTransitionPage(
-            child: SettingsScreen(),
-          ),
+          builder: (context, state) => const SettingsScreen(),
         ),
 
         // Provider Settings
         GoRoute(
           path: '/provider-settings',
-          pageBuilder: (context, state) => const NoTransitionPage(
-            child: ProviderSettingsScreen(),
-          ),
+          builder: (context, state) => const ProviderSettingsScreen(),
         ),
 
         // Payment Methods
         GoRoute(
           path: '/payment-methods',
-          pageBuilder: (context, state) => const NoTransitionPage(
-            child: PaymentMethodsScreen(),
-          ),
+          builder: (context, state) => const PaymentMethodsScreen(),
         ),
 
         // Legal Screens
         GoRoute(
           path: '/terms-conditions',
-          pageBuilder: (context, state) => const NoTransitionPage(
-            child: TermsConditionsScreen(),
-          ),
+          builder: (context, state) => const TermsConditionsScreen(),
         ),
 
         GoRoute(
           path: '/privacy-policy',
-          pageBuilder: (context, state) => const NoTransitionPage(
-            child: PrivacyPolicyScreen(),
-          ),
+          builder: (context, state) => const PrivacyPolicyScreen(),
         ),
 
         GoRoute(
           path: '/about-us',
-          pageBuilder: (context, state) => const NoTransitionPage(
-            child: AboutUsScreen(),
-          ),
+          builder: (context, state) => const AboutUsScreen(),
         ),
 
 
@@ -313,25 +315,19 @@ class MainShell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final location = GoRouterState.of(context).matchedLocation;
-    final isHomeScreen = location == '/home';
-    
     return Scaffold(
-      body: child,
-      bottomNavigationBar: Stack(
-        clipBehavior: Clip.none,
+      backgroundColor: context.backgroundColor,
+      body: Column(
+        mainAxisSize: MainAxisSize.max,
         children: [
+          // Main content
+          Expanded(child: child),
+          // Latest Service card - widget returns SizedBox.shrink() when hidden (no white box)
+          const _FloatingBookingWidget(),
+          // Bottom navigation bar
           BottomNav(
             currentIndex: _calculateSelectedIndex(context),
           ),
-          // Floating widget above bottom nav (only on home screen)
-          if (isHomeScreen)
-            Positioned(
-              bottom: 70, // Above the bottom nav
-              left: 16,
-              right: 16,
-              child: _FloatingBookingWidget(),
-            ),
         ],
       ),
     );
@@ -340,6 +336,8 @@ class MainShell extends StatelessWidget {
 
 // Floating widget to show latest booking for providers
 class _FloatingBookingWidget extends StatefulWidget {
+  const _FloatingBookingWidget();
+  
   @override
   State<_FloatingBookingWidget> createState() => _FloatingBookingWidgetState();
 }
@@ -348,52 +346,75 @@ class _FloatingBookingWidgetState extends State<_FloatingBookingWidget> {
   Map<String, dynamic>? _latestBooking;
   bool _isLoading = true;
   String? _userRole;
+  bool _shouldShow = false;
+  bool _actionLoading = false;
+  /// Error from Mark Complete (e.g. insufficient balance). Shown on the card.
+  String? _completeErrorMessage;
 
   @override
   void initState() {
     super.initState();
     _loadLatestBooking();
+    BookingCardRefreshNotifier.trigger.addListener(_onRefreshRequested);
   }
 
-  Future<void> _loadLatestBooking() async {
-    final result = await ApiService.getCurrentUserInfo(forceRefresh: false);
+  @override
+  void dispose() {
+    BookingCardRefreshNotifier.trigger.removeListener(_onRefreshRequested);
+    super.dispose();
+  }
+
+  void _onRefreshRequested() {
+    if (mounted) _loadLatestBooking(forceRefresh: true);
+  }
+
+  Future<void> _loadLatestBooking({bool forceRefresh = false}) async {
+    final result = await ApiService.getCurrentUserInfo(forceRefresh: forceRefresh);
     if (result['success'] == true) {
       final userData = result['data'];
       final role = userData['role'] ?? 'customer';
-      
+
+      List<dynamic> activeBookings = [];
       if (role == 'provider') {
-        // Get provider bookings
-        final bookingsResult = await ApiService.getProviderRequests(forceRefresh: false);
+        final bookingsResult = await ApiService.getProviderRequests(forceRefresh: forceRefresh);
         if (bookingsResult['success'] == true) {
           final bookings = bookingsResult['data'] as List;
-          // Filter bookings that are not completed, cancelled, or payment
-          final activeBookings = bookings.where((b) {
+          activeBookings = bookings.where((b) {
             final status = b['status'] as String? ?? '';
             return status != 'completed' && status != 'cancelled' && status != 'payment';
           }).toList();
-          
-          if (mounted && activeBookings.isNotEmpty) {
-            // Sort by created_at (most recent first)
-            activeBookings.sort((a, b) {
-              final aDate = a['created_at'] as String? ?? '';
-              final bDate = b['created_at'] as String? ?? '';
-              return bDate.compareTo(aDate);
-            });
-            
-            setState(() {
-              _latestBooking = activeBookings.first;
-              _userRole = role;
-              _isLoading = false;
-            });
-            return;
-          }
+        }
+      } else {
+        final bookingsResult = await ApiService.getUserBookings(forceRefresh: forceRefresh);
+        if (bookingsResult['success'] == true) {
+          final bookings = bookingsResult['data'] as List;
+          activeBookings = bookings.where((b) {
+            final status = b['status'] as String? ?? '';
+            return status != 'completed' && status != 'cancelled' && status != 'payment';
+          }).toList();
         }
       }
+      if (mounted && activeBookings.isNotEmpty) {
+        activeBookings.sort((a, b) {
+          final aDate = a['created_at'] as String? ?? '';
+          final bDate = b['created_at'] as String? ?? '';
+          return bDate.compareTo(aDate);
+        });
+        setState(() {
+          _latestBooking = activeBookings.first;
+          _userRole = role;
+          _isLoading = false;
+          _shouldShow = true;
+          _completeErrorMessage = null;
+        });
+        return;
+      }
     }
-    
     if (mounted) {
       setState(() {
         _isLoading = false;
+        _shouldShow = false;
+        _completeErrorMessage = null;
       });
     }
   }
@@ -428,116 +449,260 @@ class _FloatingBookingWidgetState extends State<_FloatingBookingWidget> {
     }
   }
 
+  Future<void> _acceptBooking(int bookingId) async {
+    if (_actionLoading || !mounted) return;
+    setState(() => _actionLoading = true);
+    final result = await ApiService.acceptBooking(bookingId);
+    if (mounted) {
+      setState(() => _actionLoading = false);
+      if (result['success'] == true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Booking accepted'), backgroundColor: Colors.green),
+        );
+        _loadLatestBooking(forceRefresh: true);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(result['error']?['message'] ?? 'Failed to accept'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  static String _parseCompleteError(dynamic err) {
+    if (err == null) return 'Failed to complete booking.';
+    if (err is String) return err.isNotEmpty ? err : 'Failed to complete booking.';
+    if (err is Map) {
+      final msg = err['error'] ?? err['message'] ?? err['detail'];
+      if (msg != null && msg.toString().trim().isNotEmpty) return msg.toString().trim();
+      if (err.length == 1) return err.values.first?.toString().trim() ?? 'Failed to complete booking.';
+    }
+    return 'Failed to complete booking.';
+  }
+
+  Future<void> _completeBooking(int bookingId) async {
+    if (_actionLoading || !mounted) return;
+    setState(() {
+      _actionLoading = true;
+      _completeErrorMessage = null;
+    });
+    final result = await ApiService.completeBooking(bookingId);
+    if (mounted) {
+      setState(() => _actionLoading = false);
+      if (result['success'] == true) {
+        setState(() => _completeErrorMessage = null);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Booking completed'), backgroundColor: Colors.green),
+        );
+        WalletRefreshNotifier.notifyRefresh();
+        _loadLatestBooking(forceRefresh: true);
+      } else {
+        final message = _parseCompleteError(result['error']);
+        setState(() => _completeErrorMessage = message);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    // Only show for providers with active bookings
-    if (_userRole != 'provider' || _latestBooking == null || _isLoading) {
+    if (!_shouldShow || _latestBooking == null || _isLoading) {
       return const SizedBox.shrink();
     }
 
     final booking = _latestBooking!;
     final status = booking['status'] as String? ?? '';
     final serviceName = booking['service_name'] as String? ?? 'Service';
-    final customerName = booking['customer_name'] as String? ?? 'Customer';
+    final isProvider = _userRole == 'provider';
+    final otherPartyName = isProvider
+        ? (booking['customer_name'] ?? booking['customer']?['name'] ?? 'Customer')
+        : (booking['provider_name'] ?? booking['provider']?['name'] ?? 'Provider');
     final bookingId = booking['id'];
+    final id = bookingId is int ? bookingId : int.tryParse(bookingId?.toString() ?? '');
 
-    return GestureDetector(
-      onTap: () {
-        if (bookingId != null) {
-          context.push('/booking-details/$bookingId');
-        }
-      },
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: context.cardColor,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: _getStatusColor(status).withOpacity(0.3),
-            width: 2,
+    // Action button for provider: Accept (pending), Negotiate (negotiation), Mark Complete (accepted/in_progress)
+    Widget? actionButton;
+    if (isProvider && id != null) {
+      if (status == 'pending') {
+        actionButton = _buildActionChip(
+          context,
+          label: 'Accept',
+          onTap: () => _acceptBooking(id),
+        );
+      } else if (status == 'negotiation') {
+        actionButton = _buildActionChip(
+          context,
+          label: 'Negotiate',
+          onTap: () => context.push('/chat/$id', extra: {'bookingId': id}),
+        );
+      } else if (status == 'accepted' || status == 'in_progress') {
+        actionButton = _buildActionChip(
+          context,
+          label: 'Mark Complete',
+          onTap: () => _completeBooking(id),
+        );
+      }
+    } else if (!isProvider && id != null && status == 'negotiation') {
+      actionButton = _buildActionChip(
+        context,
+        label: 'Negotiate',
+        onTap: () => context.push('/chat/$id', extra: {'bookingId': id}),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(left: 16, right: 16, bottom: 8),
+      child: GestureDetector(
+        onTap: () {
+          if (id != null) context.push('/booking-details/$id');
+        },
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            color: context.cardColor,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: _completeErrorMessage != null
+                  ? AppColors.error.withOpacity(0.5)
+                  : _getStatusColor(status).withOpacity(0.2),
+              width: 1,
+            ),
           ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.1),
-              blurRadius: 10,
-              offset: const Offset(0, -2),
-            ),
-          ],
-        ),
-        child: Row(
-          children: [
-            // Status indicator
-            Container(
-              width: 4,
-              height: 50,
-              decoration: BoxDecoration(
-                color: _getStatusColor(status),
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            const SizedBox(width: 12),
-            // Booking info
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
                 children: [
-                  Text(
-                    'Latest Service',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: context.mutedForegroundColor,
-                      fontWeight: FontWeight.w500,
+                  Container(
+                    width: 3,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      color: _completeErrorMessage != null
+                          ? AppColors.error
+                          : _getStatusColor(status),
+                      borderRadius: BorderRadius.circular(2),
                     ),
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    serviceName,
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: context.foregroundColor,
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          serviceName,
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: context.foregroundColor,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          otherPartyName,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: context.mutedForegroundColor,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
                     ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    customerName,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: context.mutedForegroundColor,
+                  const SizedBox(width: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: _getStatusColor(status).withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
                     ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                    child: Text(
+                      _getStatusLabel(status),
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                        color: _getStatusColor(status),
+                      ),
+                    ),
+                  ),
+                  if (actionButton != null) ...[
+                    const SizedBox(width: 6),
+                    if (_actionLoading)
+                      const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    else
+                      actionButton,
+                  ],
+                  const SizedBox(width: 4),
+                  Icon(
+                    Icons.arrow_forward_ios,
+                    size: 12,
+                    color: context.mutedForegroundColor,
                   ),
                 ],
               ),
-            ),
-            // Status badge
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: _getStatusColor(status).withOpacity(0.1),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Text(
-                _getStatusLabel(status),
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: _getStatusColor(status),
+              if (_completeErrorMessage != null) ...[
+                const SizedBox(height: 8),
+                GestureDetector(
+                  onTap: () {}, // absorb tap so card tap doesn't navigate
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(Icons.warning_amber_rounded, size: 14, color: AppColors.error),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          _completeErrorMessage!,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: AppColors.error,
+                            height: 1.3,
+                          ),
+                        ),
+                      ),
+                      GestureDetector(
+                        onTap: () => setState(() => _completeErrorMessage = null),
+                        child: Icon(Icons.close, size: 16, color: AppColors.error),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildActionChip(BuildContext context, {required String label, required VoidCallback onTap}) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.primary.withOpacity(0.15),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+              color: Theme.of(context).colorScheme.primary,
             ),
-            const SizedBox(width: 8),
-            // Arrow icon
-            Icon(
-              Icons.arrow_forward_ios,
-              size: 16,
-              color: context.mutedForegroundColor,
-            ),
-          ],
+          ),
         ),
       ),
     );

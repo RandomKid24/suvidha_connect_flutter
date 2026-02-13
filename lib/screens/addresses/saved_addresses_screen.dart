@@ -25,13 +25,13 @@ class _SavedAddressesScreenState extends State<SavedAddressesScreen> {
     _loadAddresses();
   }
 
-  Future<void> _loadAddresses() async {
+  Future<void> _loadAddresses({bool forceRefresh = false}) async {
     setState(() {
       _isLoading = true;
       _error = null;
     });
 
-    final result = await ApiService.getSavedAddresses(forceRefresh: false);
+    final result = await ApiService.getSavedAddresses(forceRefresh: forceRefresh);
 
     if (mounted) {
       setState(() {
@@ -102,13 +102,17 @@ class _SavedAddressesScreenState extends State<SavedAddressesScreen> {
     return Scaffold(
       backgroundColor: context.backgroundColor,
       body: SafeArea(
+        bottom: false,
         child: Column(
           children: [
             const AppHeader(),
             Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(16),
-                child: Column(
+              child: RefreshIndicator(
+                onRefresh: () => _loadAddresses(forceRefresh: true),
+                child: SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
@@ -232,6 +236,7 @@ class _SavedAddressesScreenState extends State<SavedAddressesScreen> {
                 ),
               ),
             ),
+          ),
           ],
         ),
       ),

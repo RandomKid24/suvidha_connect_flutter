@@ -26,7 +26,8 @@ class _ReviewsScreenState extends State<ReviewsScreen> {
   @override
   void initState() {
     super.initState();
-    _loadData();
+    // Force refresh on initial load to ensure we get all reviews (not just cached limited ones)
+    _loadData(forceRefresh: true);
   }
 
   Future<void> _loadData({bool forceRefresh = false, bool showLoading = true}) async {
@@ -38,10 +39,13 @@ class _ReviewsScreenState extends State<ReviewsScreen> {
     }
 
     // Load all reviews (use cache by default) - this is what "view all" should show
+    // Note: Not passing limit parameter to get ALL reviews
     final reviewsResult = await ApiService.getReviews(forceRefresh: forceRefresh);
+    print('📊 Reviews API result: success=${reviewsResult['success']}, count=${reviewsResult['success'] == true ? (reviewsResult['data'] as List).length : 0}');
     
     // Also load completed bookings for the "My Reviews" section
     final bookingsResult = await ApiService.getUserBookings(forceRefresh: forceRefresh);
+    print('📊 Bookings API result: success=${bookingsResult['success']}, count=${bookingsResult['success'] == true ? (bookingsResult['data'] as List).length : 0}');
 
     if (mounted) {
       setState(() {
@@ -50,13 +54,20 @@ class _ReviewsScreenState extends State<ReviewsScreen> {
         }
         if (reviewsResult['success'] == true) {
           _allReviews = reviewsResult['data'] as List;
+          print('✅ Loaded ${_allReviews.length} reviews for "All Reviews" tab');
           // Use all reviews to check if booking was reviewed
           _reviews = _allReviews;
+        } else {
+          print('❌ Failed to load reviews: ${reviewsResult['error']}');
         }
         if (bookingsResult['success'] == true) {
           final allBookings = bookingsResult['data'] as List;
           _completedBookings = allBookings.where((b) => b['status'] == 'completed').toList();
+          print('✅ Loaded ${_completedBookings.length} completed bookings for "My Reviews" tab');
+        } else {
+          print('❌ Failed to load bookings: ${bookingsResult['error']}');
         }
+        // Only set error if both failed
         if (reviewsResult['success'] != true && bookingsResult['success'] != true) {
           _error = 'Failed to load data';
         }
@@ -64,37 +75,25 @@ class _ReviewsScreenState extends State<ReviewsScreen> {
     }
   }
 
-  bool _hasReviewed(int bookingId, int providerId, int? serviceCategoryId) {
+  /// Booking-based: true if this booking already has a review.
+  bool _hasReviewedBooking(int bookingId) {
     return _reviews.any((review) {
-      final reviewProviderId = review['provider']?['id'] ?? review['provider'];
-      final reviewServiceCategoryId = review['service_category']?['id'] ?? review['service_category'];
-      
-      // Provider must match
-      if (reviewProviderId != providerId) {
-        return false;
-      }
-      
-      // Both service category IDs must be the same (including both being null)
-      // If serviceCategoryId is null, only match if reviewServiceCategoryId is also null
-      // If serviceCategoryId is not null, it must match exactly
-      if (serviceCategoryId == null) {
-        return reviewServiceCategoryId == null;
-      } else {
-        return reviewServiceCategoryId == serviceCategoryId;
-      }
+      final rid = review['booking_id'] ?? review['booking']?['id'] ?? review['booking'];
+      if (rid == null) return false;
+      return rid == bookingId || rid.toString() == bookingId.toString();
     });
   }
 
   Future<void> _showReviewDialog(Map<String, dynamic> booking) async {
+    final bookingId = booking['id'];
     final providerId = booking['provider']?['id'];
     final serviceCategoryId = booking['service_category']?['id'];
-    
-    if (providerId == null) return;
+    if (bookingId == null || providerId == null) return;
 
-    // Check if already reviewed
-    if (_hasReviewed(booking['id'], providerId, serviceCategoryId)) {
+    // Booking-based: one review per booking
+    if (_hasReviewedBooking(bookingId is int ? bookingId : int.tryParse(bookingId.toString()) ?? 0)) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('You have already reviewed this service')),
+        const SnackBar(content: Text('You have already reviewed this booking')),
       );
       return;
     }
@@ -168,8 +167,7 @@ class _ReviewsScreenState extends State<ReviewsScreen> {
                   ? null
                   : () async {
                       final reviewData = {
-                        'provider_id': providerId,
-                        'service_category_id': serviceCategoryId,
+                        'booking_id': bookingId,
                         'rating': selectedRating,
                         'comment': commentController.text.trim(),
                       };
@@ -210,6 +208,7 @@ class _ReviewsScreenState extends State<ReviewsScreen> {
     return Scaffold(
       backgroundColor: context.backgroundColor,
       body: SafeArea(
+        bottom: false,
         child: Column(
           children: [
             const AppHeader(),
@@ -228,9 +227,9 @@ class _ReviewsScreenState extends State<ReviewsScreen> {
                     top: 16,
                     bottom: 16 + MediaQuery.of(context).padding.bottom,
                   ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
                     // Toggle between "All Reviews" and "My Reviews"
                     Row(
                       children: [
@@ -359,11 +358,13 @@ class _ReviewsScreenState extends State<ReviewsScreen> {
                                 ),
                               ),
                             )
-                          : ..._allReviews.asMap().entries.map((entry) {
-                              final index = entry.key;
-                              final review = entry.value;
-                              return _buildReviewCard(review, index);
-                            })
+                          : Column(
+                              children: _allReviews.asMap().entries.map((entry) {
+                                final index = entry.key;
+                                final review = entry.value;
+                                return _buildReviewCard(review, index);
+                              }).toList(),
+                            )
                     else
                       // Show "My Reviews" - completed bookings to review
                       _completedBookings.isEmpty
@@ -398,12 +399,15 @@ class _ReviewsScreenState extends State<ReviewsScreen> {
                                 ),
                               ),
                             )
-                          : ..._completedBookings.asMap().entries.map((entry) {
-                              final index = entry.key;
-                              final booking = entry.value;
-                              return _buildBookingCard(booking, index);
-                            }),
-                  ],
+                          : Column(
+                              children: _completedBookings.asMap().entries.map((entry) {
+                                final index = entry.key;
+                                final booking = entry.value;
+                                return _buildBookingCard(booking, index);
+                              }).toList(),
+                            ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -414,12 +418,11 @@ class _ReviewsScreenState extends State<ReviewsScreen> {
   }
 
   Widget _buildBookingCard(Map<String, dynamic> booking, int index) {
-    final providerId = booking['provider']?['id'];
-    final serviceCategoryId = booking['service_category']?['id'];
+    final bookingId = booking['id'];
     final serviceName = booking['service_name'] ?? 'Service';
     final providerName = booking['provider_name'] ?? 'Provider';
-    final hasReviewed = providerId != null && 
-                       _hasReviewed(booking['id'], providerId, serviceCategoryId);
+    final hasReviewed = bookingId != null &&
+                       _hasReviewedBooking(bookingId is int ? bookingId : int.tryParse(bookingId.toString()) ?? 0);
 
     String? completedDateStr;
     if (booking['completed_at'] != null) {

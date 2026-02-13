@@ -77,7 +77,7 @@ class _ChatScreenState extends State<ChatScreen> {
             _otherUserId = widget.providerId;
           }
         });
-        await _loadOtherUserName();
+        await _loadOtherUserName(forceRefresh: false);
         _setupFirestoreListener();
       } else {
         // If API call fails, still try to set up listener with available data
@@ -93,13 +93,13 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  Future<void> _loadOtherUserName() async {
+  Future<void> _loadOtherUserName({bool forceRefresh = false}) async {
     if (_otherUserId == null) return;
     
     final bId = int.tryParse(widget.bookingId);
     if (bId == null) return;
 
-    final result = await ApiService.getUserBookings(forceRefresh: false);
+    final result = await ApiService.getUserBookings(forceRefresh: forceRefresh);
     if (result['success'] == true) {
       final bookings = result['data'] as List;
       final booking = bookings.firstWhere(
@@ -108,11 +108,40 @@ class _ChatScreenState extends State<ChatScreen> {
       );
       
       if (booking != null && mounted) {
+        // Helper function to normalize price values for comparison
+        dynamic normalizePrice(dynamic price) {
+          if (price == null) return null;
+          if (price is num) return price.toDouble();
+          if (price is String) {
+            final parsed = double.tryParse(price);
+            return parsed;
+          }
+          return price;
+        }
+        
+        // Helper function to get user ID from proposed_by (handles both dict and int)
+        int? getProposedById(dynamic proposedBy) {
+          if (proposedBy == null) return null;
+          if (proposedBy is int) return proposedBy;
+          if (proposedBy is Map) return proposedBy['id'] as int?;
+          return null;
+        }
+        
+        // Compare normalized prices
+        final oldProposedPrice = normalizePrice(_bookingData?['proposed_price']);
+        final newProposedPrice = normalizePrice(booking['proposed_price']);
+        final oldPrice = normalizePrice(_bookingData?['price']);
+        final newPrice = normalizePrice(booking['price']);
+        final oldProposedById = getProposedById(_bookingData?['proposed_by']);
+        final newProposedById = getProposedById(booking['proposed_by']);
+        
         // Only update if there's an actual change to avoid unnecessary rebuilding
         if (_bookingData == null || 
             _bookingData!['status'] != booking['status'] || 
-            _bookingData!['proposed_price'] != booking['proposed_price'] ||
-            _bookingData!['price_locked'] != booking['price_locked']) {
+            oldProposedPrice != newProposedPrice ||
+            oldPrice != newPrice ||
+            _bookingData!['price_locked'] != booking['price_locked'] ||
+            oldProposedById != newProposedById) {
           setState(() {
             _bookingData = booking;
             if (_userRole == 'provider') {
@@ -134,9 +163,10 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _startPolling() {
     _refreshTimer?.cancel();
-    _refreshTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
+    _refreshTimer = Timer.periodic(const Duration(seconds: 3), (timer) {
       if (mounted) {
-        _loadOtherUserName();
+        // Use forceRefresh: false for polling to avoid too many API calls
+        _loadOtherUserName(forceRefresh: false);
       }
     });
   }
@@ -294,8 +324,39 @@ class _ChatScreenState extends State<ChatScreen> {
           .snapshots()
           .listen((snapshot) {
         if (mounted && snapshot.exists) {
-          print('🔔 Chat metadata updated, refreshing booking details');
-          _loadOtherUserName();
+          final data = snapshot.data();
+          print('🔔 Chat metadata updated: $data');
+          
+          // Check if price was updated in Firebase
+          if (data != null && data.containsKey('proposed_price')) {
+            final firebasePrice = data['proposed_price'];
+            final firebaseProposedById = data['proposed_by_id'];
+            final firebasePriceLocked = data['price_locked'] ?? false;
+            
+            // Update local booking data immediately from Firebase
+            if (_bookingData != null) {
+              final currentPrice = _bookingData!['proposed_price'];
+              final currentProposedById = _bookingData!['proposed_by'] is Map 
+                  ? _bookingData!['proposed_by']['id'] 
+                  : _bookingData!['proposed_by'];
+              
+              // Only update if price actually changed
+              if (currentPrice != firebasePrice || currentProposedById != firebaseProposedById) {
+                setState(() {
+                  _bookingData = {
+                    ..._bookingData!,
+                    'proposed_price': firebasePrice,
+                    'proposed_by': firebaseProposedById,
+                    'price_locked': firebasePriceLocked,
+                  };
+                });
+                print('✅ Updated price from Firebase: $firebasePrice');
+              }
+            }
+          }
+          
+          // Always refresh from API to get latest status and other fields
+          _loadOtherUserName(forceRefresh: true);
         }
       });
       
@@ -309,12 +370,25 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  Future<void> _triggerMetadataUpdate() async {
+  Future<void> _triggerMetadataUpdate({double? proposedPrice, int? proposedById, bool? priceLocked}) async {
     try {
       final chatRoomId = 'booking_${widget.bookingId}';
-      await _firestore.collection('chats').doc(chatRoomId).set({
+      final updateData = <String, dynamic>{
         'updated_at': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      };
+      
+      // Store price information in Firebase for real-time updates
+      if (proposedPrice != null) {
+        updateData['proposed_price'] = proposedPrice;
+      }
+      if (proposedById != null) {
+        updateData['proposed_by_id'] = proposedById;
+      }
+      if (priceLocked != null) {
+        updateData['price_locked'] = priceLocked;
+      }
+      
+      await _firestore.collection('chats').doc(chatRoomId).set(updateData, SetOptions(merge: true));
     } catch (e) {
       print('⚠️ Failed to update chat metadata: $e');
     }
@@ -577,30 +651,34 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  Widget _buildPriceSection(BuildContext context) {
-    final proposedPriceRaw = _bookingData?['proposed_price'];
-    // Convert to double if it's a string - handle all possible types
-    double? proposedPrice;
-    if (proposedPriceRaw != null) {
-      if (proposedPriceRaw is double) {
-        proposedPrice = proposedPriceRaw;
-      } else if (proposedPriceRaw is String) {
-        proposedPrice = double.tryParse(proposedPriceRaw);
-      } else if (proposedPriceRaw is int) {
-        proposedPrice = proposedPriceRaw.toDouble();
-      } else if (proposedPriceRaw is num) {
-        proposedPrice = proposedPriceRaw.toDouble();
-      } else {
-        // Try to convert to string first, then parse
-        try {
-          proposedPrice = double.tryParse(proposedPriceRaw.toString());
-        } catch (e) {
-          proposedPrice = null;
-        }
-      }
+  double? _parsePrice(dynamic raw) {
+    if (raw == null) return null;
+    if (raw is double) return raw;
+    if (raw is int) return raw.toDouble();
+    if (raw is num) return raw.toDouble();
+    if (raw is String) return double.tryParse(raw);
+    try {
+      return double.tryParse(raw.toString());
+    } catch (_) {
+      return null;
     }
+  }
+
+  Widget _buildPriceSection(BuildContext context) {
+    final bookingStatus = _bookingData?['status'] ?? '';
+    final isAccepted = bookingStatus == 'accepted';
+    
+    // For accepted status, use the final price; otherwise use proposed_price
+    final priceRaw = isAccepted 
+        ? (_bookingData?['price']) 
+        : (_bookingData?['proposed_price']);
+    final price = _parsePrice(priceRaw);
+    
+    // Customer's expected price (booking initial price - what consumer offered)
+    final customerExpectedPrice = _parsePrice(_bookingData?['price']);
+    
     final proposedBy = _bookingData?['proposed_by'];
-    final priceLocked = _bookingData?['price_locked'] ?? false;
+    final priceLocked = _bookingData?['price_locked'] ?? false || isAccepted;
     final isProvider = _userRole == 'provider';
     // Check if proposed_by is the current user (handle both dict and int formats)
     final proposedByMe = proposedBy != null && (
@@ -620,6 +698,70 @@ class _ChatScreenState extends State<ChatScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          // Provider in negotiation: show customer's expected price and Accept / Propose options
+          if (isProvider && bookingStatus == 'negotiation' && !priceLocked && !isAccepted) ...[
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.blue.withOpacity(0.08),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.blue.withOpacity(0.3)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    "Customer's expected price",
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: context.mutedForegroundColor,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    customerExpectedPrice != null
+                        ? 'Rs. ${customerExpectedPrice.toStringAsFixed(2)}/-'
+                        : 'Not set',
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.blue,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: _handleAcceptAtCustomerPrice,
+                          icon: const Icon(Iconsax.tick_circle, size: 18),
+                          label: const Text('Accept at this price'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.green,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: _showPriceDialog,
+                          icon: const Icon(Iconsax.dollar_circle, size: 18),
+                          label: const Text('Propose different'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Theme.of(context).colorScheme.primary,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
           // Current/Proposed Price Display
           InkWell(
             onTap: priceLocked ? null : _showPriceDialog,
@@ -659,8 +801,8 @@ class _ChatScreenState extends State<ChatScreen> {
                       ),
                       const SizedBox(width: 8),
                       Text(
-                        proposedPrice != null 
-                          ? 'Rs. ${(proposedPrice as double).toStringAsFixed(2)}/-'
+                        price != null 
+                          ? 'Rs. ${(price as double).toStringAsFixed(2)}/-'
                           : 'Tap to set price',
                         style: TextStyle(
                           fontSize: 24,
@@ -674,7 +816,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       ),
                     ],
                   ),
-                  if (proposedPrice != null && !priceLocked) ...[
+                  if (price != null && !priceLocked && !isAccepted) ...[
                     const SizedBox(height: 8),
                     Text(
                       proposedByMe 
@@ -695,10 +837,10 @@ class _ChatScreenState extends State<ChatScreen> {
                       ),
                     ),
                   ],
-                  if (priceLocked) ...[
+                  if (priceLocked || isAccepted) ...[
                     const SizedBox(height: 8),
                     Text(
-                      'Price Locked - Booking Accepted',
+                      isAccepted ? 'Price Accepted - Booking Confirmed' : 'Price Locked - Booking Accepted',
                       style: TextStyle(
                         fontSize: 12,
                         color: Colors.blue,
@@ -711,8 +853,8 @@ class _ChatScreenState extends State<ChatScreen> {
             ),
           ),
           
-          // Accept Price Button (show if price proposed by other party and not locked)
-          if (proposedPrice != null && !proposedByMe && !priceLocked) ...[
+          // Accept Price Button (show if price proposed by other party and not locked, and not accepted)
+          if (price != null && !proposedByMe && !priceLocked && !isAccepted) ...[
             const SizedBox(height: 12),
             ElevatedButton.icon(
               onPressed: _handleAcceptPrice,
@@ -847,13 +989,78 @@ class _ChatScreenState extends State<ChatScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Price of Rs. $price/- proposed')),
         );
-        // Trigger Firestore update for the other party
-        _triggerMetadataUpdate();
-        // Reload booking data
-        await _loadOtherUserName();
+        // Get the proposed_by ID from the result
+        final proposedBy = result['data']?['proposed_by'];
+        final proposedById = proposedBy is Map ? proposedBy['id'] : proposedBy;
+        
+        // Trigger Firestore update for the other party with price data
+        _triggerMetadataUpdate(
+          proposedPrice: price,
+          proposedById: proposedById ?? _currentUserId,
+          priceLocked: false,
+        );
+        // Reload booking data with force refresh to get latest price
+        await _loadOtherUserName(forceRefresh: true);
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(result['error']?['message'] ?? 'Failed to propose price')),
+        );
+      }
+    }
+  }
+
+  /// Provider accepts the booking at the customer's expected price (no negotiation).
+  Future<void> _handleAcceptAtCustomerPrice() async {
+    final customerPrice = _parsePrice(_bookingData?['price']);
+    if (customerPrice == null || customerPrice <= 0) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Customer's expected price is not set")),
+        );
+      }
+      return;
+    }
+
+    final bookingId = int.tryParse(widget.bookingId);
+    if (bookingId == null) return;
+
+    final currentProposed = _parsePrice(_bookingData?['proposed_price']);
+    final needProposeFirst = currentProposed == null ||
+        (currentProposed - customerPrice).abs() > 0.01;
+
+    if (needProposeFirst) {
+      final resultPropose = await ApiService.proposePrice(bookingId, customerPrice);
+      if (!mounted) return;
+      if (resultPropose['success'] != true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(resultPropose['error']?['message'] ?? 'Failed to set price')),
+        );
+        return;
+      }
+      _triggerMetadataUpdate(
+        proposedPrice: customerPrice,
+        proposedById: _currentUserId,
+        priceLocked: false,
+      );
+      await _loadOtherUserName(forceRefresh: true);
+      if (!mounted) return;
+    }
+
+    final result = await ApiService.acceptPrice(bookingId);
+    if (mounted) {
+      if (result['success'] == true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Booking accepted at customer\'s price!')),
+        );
+        final finalPrice = result['data']?['price'] ?? result['data']?['proposed_price'];
+        _triggerMetadataUpdate(
+          proposedPrice: finalPrice?.toDouble(),
+          priceLocked: true,
+        );
+        await _loadOtherUserName(forceRefresh: true);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(result['error']?['message'] ?? 'Failed to accept booking')),
         );
       }
     }
@@ -863,25 +1070,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final proposedPriceRaw = _bookingData?['proposed_price'];
     if (proposedPriceRaw == null) return;
     
-    // Convert to double if it's a string - handle all possible types
-    double? proposedPrice;
-    if (proposedPriceRaw is double) {
-      proposedPrice = proposedPriceRaw;
-    } else if (proposedPriceRaw is String) {
-      proposedPrice = double.tryParse(proposedPriceRaw);
-    } else if (proposedPriceRaw is int) {
-      proposedPrice = proposedPriceRaw.toDouble();
-    } else if (proposedPriceRaw is num) {
-      proposedPrice = proposedPriceRaw.toDouble();
-    } else {
-      // Try to convert to string first, then parse
-      try {
-        proposedPrice = double.tryParse(proposedPriceRaw.toString());
-      } catch (e) {
-        proposedPrice = null;
-      }
-    }
-    
+    final proposedPrice = _parsePrice(proposedPriceRaw);
     if (proposedPrice == null) return;
 
     final confirmed = await showDialog<bool>(
@@ -914,10 +1103,16 @@ class _ChatScreenState extends State<ChatScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Price accepted! Booking is now accepted.')),
         );
-        // Trigger Firestore update for the other party
-        _triggerMetadataUpdate();
-        // Reload booking data
-        await _loadOtherUserName();
+        // Get the final price from the result
+        final finalPrice = result['data']?['price'] ?? result['data']?['proposed_price'];
+        
+        // Trigger Firestore update for the other party with locked price
+        _triggerMetadataUpdate(
+          proposedPrice: finalPrice?.toDouble(),
+          priceLocked: true,
+        );
+        // Reload booking data with force refresh to get latest price
+        await _loadOtherUserName(forceRefresh: true);
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(result['error']?['message'] ?? 'Failed to accept price')),

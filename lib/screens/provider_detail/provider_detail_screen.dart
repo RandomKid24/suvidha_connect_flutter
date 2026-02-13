@@ -6,6 +6,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/theme_extensions.dart';
 import '../../services/api_service.dart';
+import '../../widgets/provider_avatar.dart';
 
 class ProviderDetailScreen extends StatefulWidget {
   final String providerId;
@@ -147,7 +148,6 @@ class _ProviderDetailScreenState extends State<ProviderDetailScreen> {
     final serviceNames = services.map((s) => s['service_category']?['name'] ?? '').where((n) => n.isNotEmpty).join(', ');
     final averageRating = (provider['average_rating'] as num?)?.toDouble() ?? 0.0;
     final totalReviews = provider['total_reviews'] ?? 0;
-    final contact = provider['contact'] ?? '';
     final isAvailable = provider['is_available'] ?? false;
     final availableFromDay = provider['available_from_day'];
     final availableToDay = provider['available_to_day'];
@@ -220,14 +220,17 @@ class _ProviderDetailScreenState extends State<ProviderDetailScreen> {
         ),
       ),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: EdgeInsets.only(
-            left: 16,
-            right: 16,
-            top: 16,
-            bottom: 16 + MediaQuery.of(context).padding.bottom,
-          ),
-          child: Column(
+        child: RefreshIndicator(
+          onRefresh: () => _loadProviderData(forceRefresh: true),
+          child: SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: EdgeInsets.only(
+              left: 16,
+              right: 16,
+              top: 16,
+              bottom: 16 + MediaQuery.of(context).padding.bottom,
+            ),
+            child: Column(
             children: [
               // Provider Card and rest of content
               Column(
@@ -253,32 +256,10 @@ class _ProviderDetailScreenState extends State<ProviderDetailScreen> {
                                 width: 4,
                               ),
                             ),
-                            child: ClipRRect(
+                            child: ProviderAvatar(
+                              imageUrl: profilePhoto,
+                              size: 96,
                               borderRadius: BorderRadius.circular(48),
-                              child: profilePhoto != null
-                                  ? CachedNetworkImage(
-                                      imageUrl: profilePhoto,
-                                      width: 96,
-                                      height: 96,
-                                      fit: BoxFit.cover,
-                                      placeholder: (context, url) => Container(
-                                        width: 96,
-                                        height: 96,
-                                        color: context.mutedColor,
-                                      ),
-                                      errorWidget: (context, url, error) => Container(
-                                        width: 96,
-                                        height: 96,
-                                        color: context.mutedColor,
-                                        child: const Icon(Iconsax.user, size: 48),
-                                      ),
-                                    )
-                                  : Container(
-                                      width: 96,
-                                      height: 96,
-                                      color: context.mutedColor,
-                                      child: const Icon(Iconsax.user, size: 48),
-                                    ),
                             ),
                           ),
                           
@@ -346,39 +327,6 @@ class _ProviderDetailScreenState extends State<ProviderDetailScreen> {
                               ],
                             ),
                             const SizedBox(height: 16),
-                          ],
-                          
-                          // Contact
-                          if (contact.isNotEmpty) ...[
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 20,
-                                vertical: 10,
-                              ),
-                              decoration: BoxDecoration(
-                                color: AppColors.primary.withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(50),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Icon(
-                                    Iconsax.call,
-                                    color: AppColors.primary,
-                                    size: 16,
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    contact,
-                                    style: TextStyle(
-                                      color: AppColors.primary,
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
                           ],
                         ],
                       ),
@@ -559,6 +507,7 @@ class _ProviderDetailScreenState extends State<ProviderDetailScreen> {
               ),
             ],
           ),
+        ),
         ),
       ),
     );

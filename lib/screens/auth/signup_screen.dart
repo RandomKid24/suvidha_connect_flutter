@@ -115,12 +115,25 @@ class _SignupScreenState extends State<SignupScreen> {
 
     if (mounted) {
       if (result['success'] == true) {
-        // For providers, automatically login and go to onboarding
+        final data = result['data'];
+        final requiresVerification = data is Map && (data['requires_email_verification'] == true);
+        final email = _emailController.text.trim();
+
+        if (requiresVerification) {
+          // Email verification required: go to verify-email screen
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Verification code sent to your email. Please verify to continue.')),
+          );
+          context.go('/verify-email?email=${Uri.encodeComponent(email)}&role=${Uri.encodeComponent(role)}');
+          return;
+        }
+
+        // For providers, automatically login and go to onboarding (legacy path when backend doesn't require verification)
         if (widget.role == 'provider' || role == 'provider') {
           // Auto-login after registration
           print('🔄 Auto-logging in provider after registration...');
           final loginResult = await ApiService.login(
-            username: _emailController.text.trim(),
+            username: email,
             password: _passwordController.text,
           );
           

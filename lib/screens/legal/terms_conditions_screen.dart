@@ -13,6 +13,7 @@ class TermsConditionsScreen extends StatelessWidget {
     return Scaffold(
       backgroundColor: context.backgroundColor,
       body: SafeArea(
+        bottom: false,
         child: Column(
           children: [
             AppHeader(

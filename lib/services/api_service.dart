@@ -8,11 +8,9 @@ import 'cache_service.dart';
 class ApiService {
   // Update this based on your environment:
   // Production: https://suvidhaconnect.pythonanywhere.com/api
-  // Android Emulator: http://10.0.2.2:8000/api
-  // iOS Simulator: http://localhost:8000/api
-  // Physical Device: http://YOUR_COMPUTER_IP:8000/api (e.g., http://192.168.1.100:8000/api)
-  // static const String baseUrl = 'http://192.168.1.15:8000/api'; // Local development
-  static const String baseUrl = 'https://suvidhaconnect.pythonanywhere.com/api'; // Production URL
+  // Local: use your machine's IP and port 8000 (Django runserver)
+  static const String baseUrl = 'http://192.168.1.15:8000/api';
+  // static const String baseUrl = 'https://suvidhaconnect.pythonanywhere.com/api';
   
   // Test connection
   static Future<bool> testConnection() async {
@@ -250,65 +248,119 @@ class ApiService {
           }
           return {'success': true, 'data': {'message': 'Login successful'}};
         }
-      } else if (response.statusCode == 403) {
-        // 403 might be due to incomplete onboarding, but session was created
-        try {
-          final errorData = jsonDecode(response.body);
-          print('Login returned 403 - Error data: $errorData');
-          
-          // If we have a session, try to get user info and save it
-          if (savedSessionId != null && savedSessionId.isNotEmpty) {
-            print('   Session exists, fetching user info...');
-            final userInfoResult = await getCurrentUserInfo();
-            if (userInfoResult['success'] == true && userInfoResult['data'] != null) {
-              final userData = userInfoResult['data'];
-              await prefs.setString('user_data', jsonEncode(userData));
-              await prefs.setBool('is_logged_in', true);
-              print('✅ User data saved from session after 403 response');
-              
-              // Return success with onboarding info
-              return {
-                'success': true,
-                'data': {
-                  'user': userData,
-                  'onboarding_complete': errorData['onboarding_complete'] ?? false,
-                  'verification_status': errorData['verification_status'],
-                }
-              };
-            }
-          }
-          
-          // Return error but include onboarding info
-          return {'success': false, 'error': errorData};
-        } catch (e) {
-          print('Failed to parse 403 response: $e');
-          return {'success': false, 'error': {'message': response.body}};
-        }
-      } else {
-        print('Login failed with status: ${response.statusCode}');
-        print('Response body: ${response.body}');
-        try {
-          final errorData = jsonDecode(response.body);
-          print('Parsed error data: $errorData');
-          return {'success': false, 'error': errorData};
-        } catch (e) {
-          print('Failed to parse error response: $e');
-          return {'success': false, 'error': {'message': response.body}};
-        }
       }
-    } on TimeoutException catch (e) {
-      print('Login timeout: $e');
-      return {'success': false, 'error': {'message': 'Request timed out. Please check your internet connection and try again.'}};
-    } on SocketException catch (e) {
-      print('Login network error: $e');
-      return {'success': false, 'error': {'message': 'Network error. Please check your internet connection.'}};
+
+      final body = response.body;
+      try {
+        final data = jsonDecode(body);
+        return {'success': false, 'error': data is Map ? data : {'message': body}};
+      } catch (_) {
+        return {'success': false, 'error': {'message': 'Login failed'}};
+      }
     } catch (e) {
       print('Login error: $e');
-      print('Login error type: ${e.runtimeType}');
-      return {'success': false, 'error': {'message': 'Login failed: ${e.toString()}'}};
+      return {'success': false, 'error': {'message': e.toString()}};
     }
   }
-  
+
+  /// Request a 6-digit password reset code to be sent to [email].
+  static Future<Map<String, dynamic>> requestPasswordResetCode({required String email}) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/auth/users/forgot_password/'),
+        headers: await _getHeaders(),
+        body: jsonEncode({'email': email.trim().toLowerCase()}),
+      ).timeout(const Duration(seconds: 15));
+      Map<String, dynamic>? data;
+      try {
+        data = jsonDecode(response.body) as Map<String, dynamic>?;
+      } catch (_) {}
+      if (response.statusCode == 200 && data != null && data['success'] == true) {
+        return {'success': true, 'message': data['message'] ?? 'Code sent to your email.'};
+      }
+      final errMsg = data != null && data['error'] != null ? data['error'].toString() : 'Failed to send code';
+      return {'success': false, 'error': {'message': errMsg}};
+    } catch (e) {
+      return {'success': false, 'error': {'message': e.toString()}};
+    }
+  }
+
+  /// Verify code and set new password. [email] and [code] from previous step.
+  static Future<Map<String, dynamic>> resetPassword({
+    required String email,
+    required String code,
+    required String newPassword,
+    required String newPasswordConfirm,
+  }) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/auth/users/reset_password/'),
+        headers: await _getHeaders(),
+        body: jsonEncode({
+          'email': email.trim().toLowerCase(),
+          'code': code.trim(),
+          'new_password': newPassword,
+          'new_password_confirm': newPasswordConfirm,
+        }),
+      ).timeout(const Duration(seconds: 15));
+      Map<String, dynamic>? data;
+      try {
+        data = jsonDecode(response.body) as Map<String, dynamic>?;
+      } catch (_) {}
+      if (response.statusCode == 200 && data != null && data['success'] == true) {
+        return {'success': true, 'message': data['message'] ?? 'Password reset successfully.'};
+      }
+      final err = data != null ? (data['error'] ?? data['message']) : null;
+      return {'success': false, 'error': {'message': err is String ? err : 'Failed to reset password'}};
+    } catch (e) {
+      return {'success': false, 'error': {'message': e.toString()}};
+    }
+  }
+
+  /// Verify email with the 6-digit code sent after signup.
+  static Future<Map<String, dynamic>> verifyEmail({required String email, required String code}) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/auth/users/verify_email/'),
+        headers: await _getHeaders(),
+        body: jsonEncode({'email': email.trim().toLowerCase(), 'code': code.trim()}),
+      ).timeout(const Duration(seconds: 15));
+      Map<String, dynamic>? data;
+      try {
+        data = jsonDecode(response.body) as Map<String, dynamic>?;
+      } catch (_) {}
+      if (response.statusCode == 200 && data != null && data['success'] == true) {
+        return {'success': true, 'message': data['message'] ?? 'Email verified.'};
+      }
+      final err = data != null ? (data['error'] ?? data['message']) : null;
+      return {'success': false, 'error': {'message': err is String ? err : 'Invalid or expired code.'}};
+    } catch (e) {
+      return {'success': false, 'error': {'message': e.toString()}};
+    }
+  }
+
+  /// Resend verification code to email (for unverified accounts).
+  static Future<Map<String, dynamic>> resendVerificationCode({required String email}) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/auth/users/resend_verification_code/'),
+        headers: await _getHeaders(),
+        body: jsonEncode({'email': email.trim().toLowerCase()}),
+      ).timeout(const Duration(seconds: 15));
+      Map<String, dynamic>? data;
+      try {
+        data = jsonDecode(response.body) as Map<String, dynamic>?;
+      } catch (_) {}
+      if (response.statusCode == 200 && data != null && data['success'] == true) {
+        return {'success': true, 'message': data['message'] ?? 'Code sent.'};
+      }
+      final err = data != null ? (data['error'] ?? data['message']) : null;
+      return {'success': false, 'error': {'message': err is String ? err : 'Failed to resend code.'}};
+    } catch (e) {
+      return {'success': false, 'error': {'message': e.toString()}};
+    }
+  }
+
   // Service Categories
   static Future<Map<String, dynamic>> getServiceCategories({bool forceRefresh = false}) async {
     try {
@@ -394,6 +446,42 @@ class ApiService {
       return {'success': false, 'error': {'message': 'Network error. Please check your internet connection.'}};
     } catch (e) {
       print('Get categories error: $e');
+      return {'success': false, 'error': {'message': e.toString()}};
+    }
+  }
+
+  /// Create a new service category (provider onboarding). Invalidates categories cache on success.
+  static Future<Map<String, dynamic>> createServiceCategory({
+    required String name,
+    String? description,
+  }) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/services/categories/create_custom/'),
+        headers: await _getHeaders(includeAuth: true),
+        body: jsonEncode({
+          'name': name.trim(),
+          if (description != null && description.trim().isNotEmpty) 'description': description.trim(),
+        }),
+      ).timeout(const Duration(seconds: 15));
+      if (response.statusCode == 201 || response.statusCode == 200) {
+        await CacheService.invalidateCachePattern('services/');
+        dynamic body;
+        try {
+          body = response.body.isEmpty ? null : jsonDecode(response.body);
+        } catch (_) {
+          body = null;
+        }
+        return {'success': true, 'data': body is Map ? Map<String, dynamic>.from(body as Map) : body};
+      }
+      try {
+        final err = jsonDecode(response.body);
+        return {'success': false, 'error': err is Map ? err : {'message': response.body}};
+      } catch (_) {
+        return {'success': false, 'error': {'message': response.body}};
+      }
+    } catch (e) {
+      print('Create service category error: $e');
       return {'success': false, 'error': {'message': e.toString()}};
     }
   }
@@ -985,10 +1073,12 @@ class ApiService {
         if (data is List) {
           reviewsList = data;
         } else if (data is Map && data.containsKey('results')) {
+          // Handle paginated response
           reviewsList = data['results'] as List;
+          print('📄 Paginated response: total=${data['count'] ?? 'unknown'}, page_size=${data['results']?.length ?? 0}');
         }
         
-        print('✅ Loaded ${reviewsList.length} reviews');
+        print('✅ Loaded ${reviewsList.length} reviews${limit != null ? " (limited to $limit)" : " (all reviews)"}');
         
         // Cache the response (cache for 30 minutes)
         await CacheService.setCache(cacheKey, reviewsList, expiration: const Duration(minutes: 30));
@@ -1670,6 +1760,34 @@ class ApiService {
     }
   }
   
+  // Provider: mark arrived at location (sends notification to customer)
+  static Future<Map<String, dynamic>> arrivedAtLocation(int bookingId) async {
+    try {
+      await CacheService.invalidateCachePattern('bookings/');
+      final response = await http.post(
+        Uri.parse('$baseUrl/bookings/$bookingId/arrived_at_location/'),
+        headers: await _getHeaders(includeAuth: true),
+      ).timeout(
+        const Duration(seconds: 15),
+        onTimeout: () {
+          throw TimeoutException('Request timed out');
+        },
+      );
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return {'success': true, 'data': data};
+      } else {
+        try {
+          return {'success': false, 'error': jsonDecode(response.body)};
+        } catch (e) {
+          return {'success': false, 'error': {'message': response.body}};
+        }
+      }
+    } catch (e) {
+      return {'success': false, 'error': {'message': e.toString()}};
+    }
+  }
+
   // Complete a booking
   static Future<Map<String, dynamic>> completeBooking(int bookingId) async {
     try {
@@ -2056,7 +2174,7 @@ class ApiService {
     }
   }
   
-  // Get list of verified providers with filtering options
+  // Get list of verified providers with filtering options (no caching - always fresh)
   static Future<Map<String, dynamic>> getProviders({
     int? serviceCategoryId,
     String? searchQuery,
@@ -2071,30 +2189,6 @@ class ApiService {
     bool forceRefresh = false,
   }) async {
     try {
-      // Build cache key from parameters
-      final params = <String, dynamic>{
-        if (serviceCategoryId != null) 'service': serviceCategoryId,
-        if (searchQuery != null && searchQuery.isNotEmpty) 'search': searchQuery,
-        if (latitude != null) 'latitude': latitude,
-        if (longitude != null) 'longitude': longitude,
-        if (radius != null) 'radius': radius,
-        if (minPrice != null) 'min_price': minPrice,
-        if (maxPrice != null) 'max_price': maxPrice,
-        if (availableOnly == true) 'available_only': true,
-        if (sortBy != null && sortBy.isNotEmpty) 'sort_by': sortBy,
-        if (page != null) 'page': page,
-      };
-      final cacheKey = CacheService.getCacheKey('providers/', params: params);
-      
-      // Check cache first unless force refresh
-      if (!forceRefresh) {
-        final cachedData = await CacheService.getCache(cacheKey);
-        if (cachedData != null) {
-          print('📦 Using cached providers');
-          return {'success': true, 'data': cachedData, 'fromCache': true};
-        }
-      }
-      
       print('Fetching providers with filters from API');
       final uri = Uri.parse('$baseUrl/providers/');
       final queryParams = <String, String>{};
@@ -2155,9 +2249,6 @@ class ApiService {
         
         print('✅ Loaded ${providersList.length} providers');
         
-        // Cache the response (cache for 5 minutes as providers can change)
-        await CacheService.setCache(cacheKey, providersList, expiration: const Duration(minutes: 5));
-        
         return {'success': true, 'data': providersList};
       } else {
         try {
@@ -2168,47 +2259,9 @@ class ApiService {
       }
     } on TimeoutException catch (e) {
       print('Get providers timeout: $e');
-      // Try to return cached data on timeout
-      final params = <String, dynamic>{
-        if (serviceCategoryId != null) 'service': serviceCategoryId,
-        if (searchQuery != null && searchQuery.isNotEmpty) 'search': searchQuery,
-        if (latitude != null) 'latitude': latitude,
-        if (longitude != null) 'longitude': longitude,
-        if (radius != null) 'radius': radius,
-        if (minPrice != null) 'min_price': minPrice,
-        if (maxPrice != null) 'max_price': maxPrice,
-        if (availableOnly == true) 'available_only': true,
-        if (sortBy != null && sortBy.isNotEmpty) 'sort_by': sortBy,
-        if (page != null) 'page': page,
-      };
-      final cacheKey = CacheService.getCacheKey('providers/', params: params);
-      final cachedData = await CacheService.getCache(cacheKey);
-      if (cachedData != null) {
-        print('📦 Returning cached providers due to timeout');
-        return {'success': true, 'data': cachedData, 'fromCache': true};
-      }
       return {'success': false, 'error': {'message': 'Request timed out. Please check your connection.'}};
     } on SocketException catch (e) {
       print('Get providers network error: $e');
-      // Try to return cached data on network error
-      final params = <String, dynamic>{
-        if (serviceCategoryId != null) 'service': serviceCategoryId,
-        if (searchQuery != null && searchQuery.isNotEmpty) 'search': searchQuery,
-        if (latitude != null) 'latitude': latitude,
-        if (longitude != null) 'longitude': longitude,
-        if (radius != null) 'radius': radius,
-        if (minPrice != null) 'min_price': minPrice,
-        if (maxPrice != null) 'max_price': maxPrice,
-        if (availableOnly == true) 'available_only': true,
-        if (sortBy != null && sortBy.isNotEmpty) 'sort_by': sortBy,
-        if (page != null) 'page': page,
-      };
-      final cacheKey = CacheService.getCacheKey('providers/', params: params);
-      final cachedData = await CacheService.getCache(cacheKey);
-      if (cachedData != null) {
-        print('📦 Returning cached providers due to network error');
-        return {'success': true, 'data': cachedData, 'fromCache': true};
-      }
       return {'success': false, 'error': {'message': 'Network error. Please check your internet connection.'}};
     } catch (e) {
       print('Get providers error: $e');
@@ -2359,6 +2412,171 @@ class ApiService {
       }
     } catch (e) {
       print('Update price range error: $e');
+      return {'success': false, 'error': {'message': e.toString()}};
+    }
+  }
+
+  /// Update provider business name, address, contact.
+  static Future<Map<String, dynamic>> updateProviderProfile({
+    String? name,
+    String? contact,
+    String? address,
+    String? locationString,
+  }) async {
+    try {
+      await CacheService.invalidateCachePattern('providers/');
+      final body = <String, dynamic>{};
+      if (name != null) body['name'] = name;
+      if (contact != null) body['contact'] = contact;
+      if (address != null) body['address'] = address;
+      if (locationString != null) body['location_string'] = locationString;
+      final response = await http.post(
+        Uri.parse('$baseUrl/providers/update_profile/'),
+        headers: await _getHeaders(includeAuth: true),
+        body: jsonEncode(body),
+      ).timeout(const Duration(seconds: 30));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return {'success': true, 'data': data};
+      }
+      try {
+        return {'success': false, 'error': jsonDecode(response.body)};
+      } catch (_) {
+        return {'success': false, 'error': {'message': response.body}};
+      }
+    } catch (e) {
+      return {'success': false, 'error': {'message': e.toString()}};
+    }
+  }
+
+  /// Update provider (business) profile photo. Multipart upload.
+  static Future<Map<String, dynamic>> updateProviderProfilePhoto(String filePath) async {
+    try {
+      await CacheService.invalidateCachePattern('providers/');
+      final request = http.MultipartRequest(
+        'POST',
+        Uri.parse('$baseUrl/providers/update_profile_photo/'),
+      );
+      final headers = await _getHeaders(includeAuth: true);
+      request.headers.addAll(headers);
+      request.headers.remove('Content-Type');
+      final sessionId = (await SharedPreferences.getInstance()).getString('session_id');
+      if (sessionId != null && sessionId.isNotEmpty) {
+        request.headers['Cookie'] = 'sessionid=$sessionId';
+      }
+      request.files.add(await http.MultipartFile.fromPath('profile_photo', filePath));
+      final streamedResponse = await request.send().timeout(const Duration(seconds: 60));
+      final response = await http.Response.fromStream(streamedResponse);
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return {'success': true, 'data': data};
+      }
+      try {
+        return {'success': false, 'error': jsonDecode(response.body)};
+      } catch (_) {
+        return {'success': false, 'error': {'message': response.body}};
+      }
+    } catch (e) {
+      return {'success': false, 'error': {'message': e.toString()}};
+    }
+  }
+
+  /// Update provider document (pan_card or registration_certificate). Multipart: document_type + file.
+  static Future<Map<String, dynamic>> updateProviderDocument({
+    required String documentType,
+    required String filePath,
+  }) async {
+    try {
+      await CacheService.invalidateCachePattern('providers/');
+      final request = http.MultipartRequest(
+        'POST',
+        Uri.parse('$baseUrl/providers/update_document/'),
+      );
+      final headers = await _getHeaders(includeAuth: true);
+      request.headers.addAll(headers);
+      request.headers.remove('Content-Type');
+      final sessionId = (await SharedPreferences.getInstance()).getString('session_id');
+      if (sessionId != null && sessionId.isNotEmpty) {
+        request.headers['Cookie'] = 'sessionid=$sessionId';
+      }
+      request.fields['document_type'] = documentType;
+      request.files.add(await http.MultipartFile.fromPath('file', filePath));
+      final streamedResponse = await request.send().timeout(const Duration(seconds: 60));
+      final response = await http.Response.fromStream(streamedResponse);
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return {'success': true, 'data': data};
+      }
+      try {
+        return {'success': false, 'error': jsonDecode(response.body)};
+      } catch (_) {
+        return {'success': false, 'error': {'message': response.body}};
+      }
+    } catch (e) {
+      return {'success': false, 'error': {'message': e.toString()}};
+    }
+  }
+
+  /// Update provider document using bytes (for Android when file path is null).
+  static Future<Map<String, dynamic>> updateProviderDocumentWithBytes({
+    required String documentType,
+    required List<int> bytes,
+    required String filename,
+  }) async {
+    try {
+      await CacheService.invalidateCachePattern('providers/');
+      final request = http.MultipartRequest(
+        'POST',
+        Uri.parse('$baseUrl/providers/update_document/'),
+      );
+      final headers = await _getHeaders(includeAuth: true);
+      request.headers.addAll(headers);
+      request.headers.remove('Content-Type');
+      final sessionId = (await SharedPreferences.getInstance()).getString('session_id');
+      if (sessionId != null && sessionId.isNotEmpty) {
+        request.headers['Cookie'] = 'sessionid=$sessionId';
+      }
+      request.fields['document_type'] = documentType;
+      request.files.add(http.MultipartFile.fromBytes(
+        'file',
+        bytes,
+        filename: filename,
+      ));
+      final streamedResponse = await request.send().timeout(const Duration(seconds: 60));
+      final response = await http.Response.fromStream(streamedResponse);
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return {'success': true, 'data': data};
+      }
+      try {
+        return {'success': false, 'error': jsonDecode(response.body)};
+      } catch (_) {
+        return {'success': false, 'error': {'message': response.body}};
+      }
+    } catch (e) {
+      return {'success': false, 'error': {'message': e.toString()}};
+    }
+  }
+
+  /// Update provider service categories (replace list). serviceIds = list of service category IDs.
+  static Future<Map<String, dynamic>> updateProviderServices(List<int> serviceIds) async {
+    try {
+      await CacheService.invalidateCachePattern('providers/');
+      final response = await http.post(
+        Uri.parse('$baseUrl/providers/update_services/'),
+        headers: await _getHeaders(includeAuth: true),
+        body: jsonEncode({'service_ids': serviceIds}),
+      ).timeout(const Duration(seconds: 30));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return {'success': true, 'data': data};
+      }
+      try {
+        return {'success': false, 'error': jsonDecode(response.body)};
+      } catch (_) {
+        return {'success': false, 'error': {'message': response.body}};
+      }
+    } catch (e) {
       return {'success': false, 'error': {'message': e.toString()}};
     }
   }

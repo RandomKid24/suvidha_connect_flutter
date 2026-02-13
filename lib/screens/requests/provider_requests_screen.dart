@@ -6,6 +6,8 @@ import 'package:iconsax/iconsax.dart';
 import 'package:intl/intl.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/theme_extensions.dart';
+import '../../core/booking_card_refresh.dart';
+import '../../core/wallet_refresh.dart';
 import '../../services/api_service.dart';
 import '../../services/notification_scheduler_service.dart';
 import '../../widgets/app_header.dart';
@@ -99,20 +101,34 @@ class _ProviderRequestsScreenState extends State<ProviderRequestsScreen> {
     }
   }
 
+  static String _parseCompleteError(dynamic err) {
+    if (err == null) return 'Failed to complete booking.';
+    if (err is String) return err.isNotEmpty ? err : 'Failed to complete booking.';
+    if (err is Map) {
+      final msg = err['error'] ?? err['message'] ?? err['detail'];
+      if (msg != null && msg.toString().trim().isNotEmpty) return msg.toString().trim();
+      if (err.length == 1) return err.values.first?.toString().trim() ?? 'Failed to complete booking.';
+    }
+    return 'Failed to complete booking.';
+  }
+
   Future<void> _completeRequest(int bookingId) async {
     final result = await ApiService.completeBooking(bookingId);
-    
     if (mounted) {
       if (result['success'] == true) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Service marked as completed')),
         );
-        _loadRequests(forceRefresh: true); // Force refresh after completing
+        WalletRefreshNotifier.notifyRefresh();
+        BookingCardRefreshNotifier.notifyRefresh();
+        _loadRequests(forceRefresh: true);
       } else {
+        final message = _parseCompleteError(result['error']);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(result['error']?['message'] ?? 'Failed to complete request'),
+            content: Text(message),
             backgroundColor: AppColors.error,
+            duration: const Duration(seconds: 5),
           ),
         );
       }
@@ -154,6 +170,8 @@ class _ProviderRequestsScreenState extends State<ProviderRequestsScreen> {
     switch (status) {
       case 'pending':
         return AppColors.warning;
+      case 'negotiation':
+        return Colors.orange;
       case 'accepted':
         return AppColors.primary;
       case 'in_progress':
@@ -172,12 +190,16 @@ class _ProviderRequestsScreenState extends State<ProviderRequestsScreen> {
     return Scaffold(
       backgroundColor: context.backgroundColor,
       body: SafeArea(
+        bottom: false,
         child: Column(
           children: [
             const AppHeader(),
             Expanded(
               child: RefreshIndicator(
-                onRefresh: () => _loadRequests(forceRefresh: true),
+                onRefresh: () async {
+                  await _loadRequests(forceRefresh: true);
+                  BookingCardRefreshNotifier.notifyRefresh();
+                },
                 child: SingleChildScrollView(
                   physics: const AlwaysScrollableScrollPhysics(),
                   padding: const EdgeInsets.all(16),
@@ -429,6 +451,30 @@ class _ProviderRequestsScreenState extends State<ProviderRequestsScreen> {
                   ),
                 ),
                 child: const Text('Accept Request'),
+              ),
+            )
+          else if (status == 'negotiation')
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () {
+                  final customerId = request['customer_id'] ?? request['customer']?['id'];
+                  final providerId = request['provider_id'] ?? request['provider']?['id'];
+                  context.push('/chat/$requestId', extra: {
+                    'customerId': customerId,
+                    'providerId': providerId,
+                  });
+                },
+                icon: const Icon(Iconsax.message, size: 18),
+                label: const Text('Continue Negotiation'),
+                style: OutlinedButton.styleFrom(
+                  side: BorderSide(color: Colors.orange),
+                  foregroundColor: Colors.orange,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
               ),
             )
           else if (status == 'accepted')

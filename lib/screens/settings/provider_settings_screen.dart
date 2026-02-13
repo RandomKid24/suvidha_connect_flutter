@@ -1,10 +1,15 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:iconsax/iconsax.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/theme_extensions.dart';
 import '../../services/api_service.dart';
 import '../../widgets/app_header.dart';
+import '../../widgets/provider_avatar.dart';
 
 class ProviderSettingsScreen extends StatefulWidget {
   const ProviderSettingsScreen({super.key});
@@ -24,6 +29,14 @@ class _ProviderSettingsScreenState extends State<ProviderSettingsScreen> {
   TimeOfDay? _availableEndTime;
   final TextEditingController _minPriceController = TextEditingController();
   final TextEditingController _maxPriceController = TextEditingController();
+  final TextEditingController _businessNameController = TextEditingController();
+  final TextEditingController _addressController = TextEditingController();
+  final TextEditingController _contactController = TextEditingController();
+  bool _savingProfile = false;
+  bool _savingPhoto = false;
+  bool _savingDoc = false;
+  bool _savingServices = false;
+  final ImagePicker _imagePicker = ImagePicker();
   
   final List<Map<String, String>> _days = [
     {'value': 'monday', 'label': 'Monday'},
@@ -45,18 +58,494 @@ class _ProviderSettingsScreenState extends State<ProviderSettingsScreen> {
   void dispose() {
     _minPriceController.dispose();
     _maxPriceController.dispose();
+    _businessNameController.dispose();
+    _addressController.dispose();
+    _contactController.dispose();
     super.dispose();
   }
 
-  Future<void> _loadProviderData() async {
+  String _fullMediaUrl(String? url) {
+    if (url == null || url.isEmpty) return '';
+    if (url.startsWith('http')) return url;
+    final base = ApiService.baseUrl.replaceFirst(RegExp(r'/api.*'), '');
+    return url.startsWith('/') ? '$base$url' : '$base/$url';
+  }
+
+  Future<void> _saveBusinessInfo() async {
+    final name = _businessNameController.text.trim();
+    final address = _addressController.text.trim();
+    final contact = _contactController.text.trim();
+    if (name.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Business name is required'), backgroundColor: AppColors.error),
+      );
+      return;
+    }
+    setState(() => _savingProfile = true);
+    final result = await ApiService.updateProviderProfile(
+      name: name,
+      address: address.isEmpty ? null : address,
+      contact: contact.isEmpty ? null : contact,
+    );
+    if (mounted) {
+      setState(() => _savingProfile = false);
+      if (result['success'] == true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Business info updated')),
+        );
+        _loadProviderData(forceRefresh: true);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(result['error']?['message'] ?? 'Failed to update'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _changeProfilePhoto() async {
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      backgroundColor: context.cardColor,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: Icon(Iconsax.camera, color: context.foregroundColor),
+              title: Text('Camera', style: TextStyle(color: context.foregroundColor)),
+              onTap: () => Navigator.pop(ctx, ImageSource.camera),
+            ),
+            ListTile(
+              leading: Icon(Iconsax.gallery, color: context.foregroundColor),
+              title: Text('Gallery', style: TextStyle(color: context.foregroundColor)),
+              onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (source == null) return;
+    final XFile? picked = await _imagePicker.pickImage(source: source);
+    if (picked == null || !mounted) return;
+    setState(() => _savingPhoto = true);
+    final result = await ApiService.updateProviderProfilePhoto(picked.path);
+    if (mounted) {
+      setState(() => _savingPhoto = false);
+      if (result['success'] == true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Profile photo updated')),
+        );
+        _loadProviderData(forceRefresh: true);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(result['error']?['message'] ?? 'Failed to update photo'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _viewDocument(String? url) async {
+    final fullUrl = _fullMediaUrl(url);
+    if (fullUrl.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No document to view')),
+      );
+      return;
+    }
+    final uri = Uri.tryParse(fullUrl);
+    if (uri != null && await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Cannot open: $fullUrl')),
+      );
+    }
+  }
+
+  Future<void> _changeDocument(String documentType) async {
+    final useImage = await showModalBottomSheet<bool>(
+      context: context,
+      backgroundColor: context.cardColor,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: Icon(Iconsax.document, color: context.foregroundColor),
+              title: Text('File (PDF or image)', style: TextStyle(color: context.foregroundColor)),
+              subtitle: Text('Pick from device storage', style: TextStyle(color: context.mutedForegroundColor, fontSize: 12)),
+              onTap: () => Navigator.pop(ctx, false),
+            ),
+            ListTile(
+              leading: Icon(Iconsax.gallery, color: context.foregroundColor),
+              title: Text('Camera or Gallery', style: TextStyle(color: context.foregroundColor)),
+              subtitle: Text('Take photo or choose image', style: TextStyle(color: context.mutedForegroundColor, fontSize: 12)),
+              onTap: () => Navigator.pop(ctx, true),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (useImage == null) return;
+
+    if (useImage) {
+      final source = await showModalBottomSheet<ImageSource>(
+        context: context,
+        backgroundColor: context.cardColor,
+        builder: (ctx) => SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: Icon(Iconsax.camera, color: context.foregroundColor),
+                title: Text('Camera', style: TextStyle(color: context.foregroundColor)),
+                onTap: () => Navigator.pop(ctx, ImageSource.camera),
+              ),
+              ListTile(
+                leading: Icon(Iconsax.gallery, color: context.foregroundColor),
+                title: Text('Gallery', style: TextStyle(color: context.foregroundColor)),
+                onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+              ),
+            ],
+          ),
+        ),
+      );
+      if (source == null) return;
+      final XFile? picked = await _imagePicker.pickImage(source: source);
+      if (picked == null || !mounted) return;
+      setState(() => _savingDoc = true);
+      final apiResult = await ApiService.updateProviderDocument(
+        documentType: documentType,
+        filePath: picked.path,
+      );
+      if (mounted) {
+        setState(() => _savingDoc = false);
+        if (apiResult['success'] == true) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('${documentType == 'pan_card' ? 'PAN Card' : 'Registration Certificate'} updated')),
+          );
+          _loadProviderData(forceRefresh: true);
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(apiResult['error']?['message'] ?? 'Failed to update document'),
+              backgroundColor: AppColors.error,
+            ),
+          );
+        }
+      }
+      return;
+    }
+
+    // File picker (withData: true so we get bytes on Android when path is null)
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['pdf', 'jpg', 'jpeg', 'png'],
+      allowMultiple: false,
+      withData: true,
+    );
+    if (result == null || result.files.isEmpty) return;
+    final file = result.files.single;
+    final path = file.path;
+    final bytes = file.bytes;
+    final filename = file.name;
+    if (path == null && (bytes == null || bytes.isEmpty)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not read file. Use Camera or Gallery instead.')),
+        );
+      }
+      return;
+    }
+    setState(() => _savingDoc = true);
+    final apiResult = path != null
+        ? await ApiService.updateProviderDocument(documentType: documentType, filePath: path)
+        : await ApiService.updateProviderDocumentWithBytes(
+            documentType: documentType,
+            bytes: bytes!,
+            filename: filename.isNotEmpty ? filename : 'document.jpg',
+          );
+    if (mounted) {
+      setState(() => _savingDoc = false);
+      if (apiResult['success'] == true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('${documentType == 'pan_card' ? 'PAN Card' : 'Registration Certificate'} updated')),
+        );
+        _loadProviderData(forceRefresh: true);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(apiResult['error']?['message'] ?? 'Failed to update document'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
+  }
+
+  List<int> get _currentServiceIds {
+    final services = _providerData?['services'] as List?;
+    if (services == null) return [];
+    final list = <int>[];
+    for (final s in services) {
+      if (s is! Map) continue;
+      final sc = s['service_category'];
+      if (sc is Map && sc['id'] != null) {
+        final id = sc['id'];
+        if (id is int) list.add(id);
+      }
+    }
+    return list;
+  }
+
+  Future<void> _openCategorySelector() async {
+    final categoriesResult = await ApiService.getServiceCategories(forceRefresh: true);
+    if (categoriesResult['success'] != true) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to load categories'), backgroundColor: AppColors.error),
+      );
+      return;
+    }
+    final rawData = categoriesResult['data'];
+    final List<dynamic> initialCategories = rawData is List
+        ? List<Map<String, dynamic>>.from(rawData.map((e) => e is Map ? Map<String, dynamic>.from(e) : <String, dynamic>{'id': 0, 'name': '$e'}))
+        : (rawData is Map && rawData.containsKey('results'))
+            ? List<Map<String, dynamic>>.from((rawData['results'] as List).map((e) => e is Map ? Map<String, dynamic>.from(e) : <String, dynamic>{'id': 0, 'name': '$e'}))
+            : <Map<String, dynamic>>[];
+    final currentIds = _currentServiceIds.toSet();
+    final selectedIds = currentIds.toList();
+    if (!mounted) return;
+    final picked = await showModalBottomSheet<List<int>>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: context.cardColor,
+      builder: (ctx) {
+        final localSelected = List<int>.from(selectedIds);
+        final localCategories = List<Map<String, dynamic>>.from(initialCategories);
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            Future<void> createNewCategory() async {
+              final nameController = TextEditingController();
+              final descController = TextEditingController();
+              final created = await showDialog<Map<String, dynamic>>(
+                context: ctx,
+                builder: (dialogContext) {
+                  return AlertDialog(
+                    backgroundColor: context.cardColor,
+                    title: Text('Create new category', style: TextStyle(color: context.foregroundColor)),
+                    content: SingleChildScrollView(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          TextField(
+                            controller: nameController,
+                            decoration: InputDecoration(
+                              labelText: 'Category name',
+                              labelStyle: TextStyle(color: context.mutedForegroundColor),
+                              border: const OutlineInputBorder(),
+                            ),
+                            style: TextStyle(color: context.foregroundColor),
+                            autofocus: true,
+                          ),
+                          const SizedBox(height: 12),
+                          TextField(
+                            controller: descController,
+                            decoration: InputDecoration(
+                              labelText: 'Description (optional)',
+                              labelStyle: TextStyle(color: context.mutedForegroundColor),
+                              border: const OutlineInputBorder(),
+                            ),
+                            style: TextStyle(color: context.foregroundColor),
+                            maxLines: 2,
+                          ),
+                        ],
+                      ),
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(dialogContext),
+                        child: const Text('Cancel'),
+                      ),
+                      FilledButton(
+                        onPressed: () async {
+                          final name = nameController.text.trim();
+                          if (name.isEmpty) {
+                            ScaffoldMessenger.of(dialogContext).showSnackBar(
+                              const SnackBar(content: Text('Enter a category name')),
+                            );
+                            return;
+                          }
+                          Navigator.pop(dialogContext); // close dialog
+                          final result = await ApiService.createServiceCategory(
+                            name: name,
+                            description: descController.text.trim().isEmpty ? null : descController.text.trim(),
+                          );
+                          if (!ctx.mounted) return;
+                          if (result['success'] == true && result['data'] is Map) {
+                            final newCat = Map<String, dynamic>.from(result['data'] as Map);
+                            final newId = newCat['id'] as int?;
+                            if (newId != null) {
+                              setModalState(() {
+                                localCategories.add(newCat);
+                                localSelected.add(newId);
+                              });
+                              ScaffoldMessenger.of(ctx).showSnackBar(
+                                SnackBar(content: Text('Created: $name')),
+                              );
+                            }
+                          } else {
+                            final err = result['error'] is Map ? (result['error'] as Map)['message'] ?? result['error'] : result['error'];
+                            ScaffoldMessenger.of(ctx).showSnackBar(
+                              SnackBar(content: Text(err?.toString() ?? 'Failed to create category'), backgroundColor: AppColors.error),
+                            );
+                          }
+                        },
+                        child: const Text('Create'),
+                      ),
+                    ],
+                  );
+                },
+              );
+            }
+            return DraggableScrollableSheet(
+              initialChildSize: 0.6,
+              maxChildSize: 0.9,
+              expand: false,
+              builder: (context, scrollController) {
+                return Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'Select service categories',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w600,
+                                color: context.foregroundColor,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          TextButton.icon(
+                            onPressed: () async {
+                              await createNewCategory();
+                            },
+                            icon: const Icon(Iconsax.add, size: 18),
+                            label: const Text('New'),
+                          ),
+                          TextButton(
+                            onPressed: () => Navigator.pop(ctx, localSelected),
+                            child: const Text('Done'),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Expanded(
+                      child: ListView.builder(
+                        controller: scrollController,
+                        itemCount: localCategories.length,
+                        itemBuilder: (context, index) {
+                          final cat = localCategories[index];
+                          final id = cat['id'] as int? ?? 0;
+                          final name = cat['name']?.toString() ?? '';
+                          final isSelected = localSelected.contains(id);
+                          return CheckboxListTile(
+                            value: isSelected,
+                            onChanged: (v) {
+                              setModalState(() {
+                                if (v == true) {
+                                  localSelected.add(id);
+                                } else {
+                                  localSelected.remove(id);
+                                }
+                              });
+                            },
+                            title: Text(name, style: TextStyle(color: context.foregroundColor)),
+                            activeColor: AppColors.primary,
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                );
+              },
+            );
+          },
+        );
+      },
+    );
+    if (picked == null || picked.isEmpty) return;
+    setState(() => _savingServices = true);
+    final result = await ApiService.updateProviderServices(picked);
+    if (mounted) {
+      setState(() => _savingServices = false);
+      if (result['success'] == true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Service categories updated')),
+        );
+        _loadProviderData(forceRefresh: true);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(result['error']?['message'] ?? 'Failed to update categories'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
+  }
+
+  void _removeCategory(int categoryId) async {
+    final current = _currentServiceIds;
+    if (current.length <= 1) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Keep at least one category'), backgroundColor: AppColors.error),
+      );
+      return;
+    }
+    final updated = current.where((id) => id != categoryId).toList();
+    setState(() => _savingServices = true);
+    final result = await ApiService.updateProviderServices(updated);
+    if (mounted) {
+      setState(() => _savingServices = false);
+      if (result['success'] == true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Category removed')),
+        );
+        _loadProviderData(forceRefresh: true);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(result['error']?['message'] ?? 'Failed to update'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _loadProviderData({bool forceRefresh = false}) async {
     setState(() => _isLoading = true);
-    final result = await ApiService.getProviderProfile(forceRefresh: false);
+    final result = await ApiService.getProviderProfile(forceRefresh: forceRefresh);
     
     if (mounted) {
       setState(() {
         _isLoading = false;
         if (result['success'] == true) {
           _providerData = result['data'];
+          _businessNameController.text = _providerData?['name']?.toString() ?? '';
+          _addressController.text = _providerData?['address']?.toString() ?? '';
+          _contactController.text = _providerData?['contact']?.toString() ?? '';
           _availableFromDay = _providerData?['available_from_day'];
           _availableToDay = _providerData?['available_to_day'];
           
@@ -93,15 +582,15 @@ class _ProviderSettingsScreenState extends State<ProviderSettingsScreen> {
           // Load reviews for this provider
           final providerId = _providerData?['id'];
           if (providerId != null) {
-            _loadReviews(providerId);
+            _loadReviews(providerId, forceRefresh: forceRefresh);
           }
         }
       });
     }
   }
   
-  Future<void> _loadReviews(int providerId) async {
-    final reviewsResult = await ApiService.getReviews(providerId: providerId, forceRefresh: false);
+  Future<void> _loadReviews(int providerId, {bool forceRefresh = false}) async {
+    final reviewsResult = await ApiService.getReviews(providerId: providerId, forceRefresh: forceRefresh);
     if (mounted && reviewsResult['success'] == true) {
       setState(() {
         _reviews = reviewsResult['data'] as List;
@@ -264,22 +753,196 @@ class _ProviderSettingsScreenState extends State<ProviderSettingsScreen> {
     return Scaffold(
       backgroundColor: context.backgroundColor,
       body: SafeArea(
+        bottom: false,
         child: Column(
           children: [
             AppHeader(title: 'Provider Settings'),
             Expanded(
               child: _isLoading
                   ? const Center(child: CircularProgressIndicator())
-                  : SingleChildScrollView(
-                      padding: EdgeInsets.only(
-                        left: 16,
-                        right: 16,
-                        top: 16,
-                        bottom: 16 + MediaQuery.of(context).padding.bottom,
-                      ),
-                      child: Column(
+                  : RefreshIndicator(
+                      onRefresh: () => _loadProviderData(forceRefresh: true),
+                      child: SingleChildScrollView(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        padding: EdgeInsets.only(
+                          left: 16,
+                          right: 16,
+                          top: 16,
+                          bottom: 16 + MediaQuery.of(context).padding.bottom,
+                        ),
+                        child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
+                          // Business info
+                          Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: context.cardColor,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: context.borderColor),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Icon(Iconsax.building, color: AppColors.primary),
+                                    const SizedBox(width: 12),
+                                    Text(
+                                      'Business information',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 16,
+                                        color: context.foregroundColor,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 16),
+                                TextField(
+                                  controller: _businessNameController,
+                                  decoration: InputDecoration(
+                                    labelText: 'Business name',
+                                    labelStyle: TextStyle(color: context.mutedForegroundColor),
+                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                                    prefixIcon: const Icon(Iconsax.building_4),
+                                  ),
+                                  style: TextStyle(color: context.foregroundColor),
+                                ),
+                                const SizedBox(height: 12),
+                                TextField(
+                                  controller: _addressController,
+                                  maxLines: 2,
+                                  decoration: InputDecoration(
+                                    labelText: 'Business address',
+                                    labelStyle: TextStyle(color: context.mutedForegroundColor),
+                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                                    prefixIcon: const Icon(Iconsax.location),
+                                  ),
+                                  style: TextStyle(color: context.foregroundColor),
+                                ),
+                                const SizedBox(height: 12),
+                                TextField(
+                                  controller: _contactController,
+                                  keyboardType: TextInputType.phone,
+                                  decoration: InputDecoration(
+                                    labelText: 'Business contact number',
+                                    labelStyle: TextStyle(color: context.mutedForegroundColor),
+                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                                    prefixIcon: const Icon(Iconsax.call),
+                                  ),
+                                  style: TextStyle(color: context.foregroundColor),
+                                ),
+                                const SizedBox(height: 16),
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: ElevatedButton(
+                                    onPressed: _savingProfile ? null : _saveBusinessInfo,
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: AppColors.primary,
+                                      foregroundColor: Colors.white,
+                                      padding: const EdgeInsets.symmetric(vertical: 12),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                    ),
+                                    child: _savingProfile
+                                        ? const SizedBox(
+                                            height: 20,
+                                            width: 20,
+                                            child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation<Color>(Colors.white)),
+                                          )
+                                        : const Text('Save business info'),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ).animate(delay: 50.ms).fadeIn(duration: 400.ms).slideY(begin: 0.1, end: 0),
+                          const SizedBox(height: 16),
+                          // Profile photo (business)
+                          Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: context.cardColor,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: context.borderColor),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Icon(Iconsax.gallery, color: AppColors.primary),
+                                    const SizedBox(width: 12),
+                                    Text(
+                                      'Business profile photo',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 16,
+                                        color: context.foregroundColor,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 16),
+                                Row(
+                                  children: [
+                                    GestureDetector(
+                                      onTap: _savingPhoto ? null : _changeProfilePhoto,
+                                      child: Stack(
+                                        alignment: Alignment.center,
+                                        children: [
+                                          ProviderAvatar(
+                                            imageUrl: _fullMediaUrl(_providerData?['profile_photo']?.toString()),
+                                            size: 80,
+                                          ),
+                                          if (_savingPhoto)
+                                            Container(
+                                              width: 80,
+                                              height: 80,
+                                              decoration: BoxDecoration(
+                                                color: Colors.black45,
+                                                borderRadius: BorderRadius.circular(40),
+                                              ),
+                                              child: const Center(
+                                                child: SizedBox(
+                                                  width: 28,
+                                                  height: 28,
+                                                  child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation<Color>(Colors.white)),
+                                                ),
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(width: 16),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            'Tap photo to change',
+                                            style: TextStyle(
+                                              fontSize: 14,
+                                              color: context.mutedForegroundColor,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 8),
+                                          OutlinedButton.icon(
+                                            onPressed: _savingPhoto ? null : _changeProfilePhoto,
+                                            icon: const Icon(Iconsax.gallery, size: 18),
+                                            label: const Text('Change photo'),
+                                            style: OutlinedButton.styleFrom(
+                                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ).animate(delay: 75.ms).fadeIn(duration: 400.ms).slideY(begin: 0.1, end: 0),
+                          const SizedBox(height: 16),
                           // Availability Schedule
                           Container(
                             padding: const EdgeInsets.all(16),
@@ -582,6 +1245,114 @@ class _ProviderSettingsScreenState extends State<ProviderSettingsScreen> {
                           
                           const SizedBox(height: 16),
                           
+                          // Service categories (from onboarding)
+                          Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: context.cardColor,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: context.borderColor),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Icon(Iconsax.category_2, color: AppColors.primary),
+                                    const SizedBox(width: 12),
+                                    Text(
+                                      'Service categories',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 16,
+                                        color: context.foregroundColor,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 12),
+                                Text(
+                                  'Categories you offer (add, remove, or edit)',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: context.mutedForegroundColor,
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                if (_currentServiceIds.isEmpty)
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(vertical: 8),
+                                    child: Text(
+                                      'No categories yet',
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        color: context.mutedForegroundColor,
+                                      ),
+                                    ),
+                                  )
+                                else
+                                  ...(_providerData?['services'] as List? ?? []).map<Widget>((s) {
+                                    final cat = s is Map ? s['service_category'] : null;
+                                    final id = cat?['id'] as int?;
+                                    final name = cat?['name']?.toString() ?? 'Category';
+                                    return Padding(
+                                      padding: const EdgeInsets.only(bottom: 8),
+                                      child: Row(
+                                        children: [
+                                          Expanded(
+                                            child: Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                              decoration: BoxDecoration(
+                                                color: context.backgroundColor,
+                                                borderRadius: BorderRadius.circular(8),
+                                                border: Border.all(color: context.borderColor),
+                                              ),
+                                              child: Text(
+                                                name,
+                                                style: TextStyle(
+                                                  fontSize: 14,
+                                                  color: context.foregroundColor,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          IconButton(
+                                            onPressed: id != null && !_savingServices
+                                                ? () => _removeCategory(id)
+                                                : null,
+                                            icon: Icon(Iconsax.trash, color: AppColors.error, size: 20),
+                                            tooltip: 'Remove',
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  }).toList(),
+                                const SizedBox(height: 12),
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: OutlinedButton.icon(
+                                    onPressed: _savingServices ? null : _openCategorySelector,
+                                    icon: _savingServices
+                                        ? const SizedBox(
+                                            width: 18,
+                                            height: 18,
+                                            child: CircularProgressIndicator(strokeWidth: 2),
+                                          )
+                                        : const Icon(Iconsax.add, size: 20),
+                                    label: Text(_savingServices ? 'Saving...' : 'Add / Edit categories'),
+                                    style: OutlinedButton.styleFrom(
+                                      padding: const EdgeInsets.symmetric(vertical: 12),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ).animate(delay: 250.ms).fadeIn(duration: 500.ms).moveY(begin: 20, end: 0),
+                          
+                          const SizedBox(height: 16),
+                          
                           // Documents Section
                           Container(
                             padding: const EdgeInsets.all(16),
@@ -607,38 +1378,52 @@ class _ProviderSettingsScreenState extends State<ProviderSettingsScreen> {
                                     ),
                                   ],
                                 ),
+                                const SizedBox(height: 12),
+                                Text(
+                                  'Tap to view document.',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: context.mutedForegroundColor,
+                                  ),
+                                ),
                                 const SizedBox(height: 16),
                                 
-                                // Profile Photo
+                                // Profile Photo (view only - change is above)
                                 if (_providerData?['profile_photo'] != null)
                                   _buildDocumentRow(
                                     context,
                                     'Profile Photo',
                                     _providerData!['profile_photo'],
                                     Iconsax.user,
+                                    onView: () => _viewDocument(_providerData!['profile_photo']),
+                                    onChange: null,
                                   ),
                                 
                                 // PAN Card
-                                if (_providerData?['pan_card'] != null) ...[
-                                  const SizedBox(height: 12),
-                                  _buildDocumentRow(
-                                    context,
-                                    'PAN Card',
-                                    _providerData!['pan_card'],
-                                    Iconsax.card,
-                                  ),
-                                ],
+                                const SizedBox(height: 12),
+                                _buildDocumentRow(
+                                  context,
+                                  'PAN Card',
+                                  _providerData?['pan_card'],
+                                  Iconsax.card,
+                                  onView: _providerData?['pan_card'] != null
+                                      ? () => _viewDocument(_providerData!['pan_card'])
+                                      : null,
+                                  onChange: null,
+                                ),
                                 
                                 // Registration Certificate
-                                if (_providerData?['registration_certificate'] != null) ...[
-                                  const SizedBox(height: 12),
-                                  _buildDocumentRow(
-                                    context,
-                                    'Registration Certificate',
-                                    _providerData!['registration_certificate'],
-                                    Iconsax.document,
-                                  ),
-                                ],
+                                const SizedBox(height: 12),
+                                _buildDocumentRow(
+                                  context,
+                                  'Registration Certificate',
+                                  _providerData?['registration_certificate'],
+                                  Iconsax.document,
+                                  onView: _providerData?['registration_certificate'] != null
+                                      ? () => _viewDocument(_providerData!['registration_certificate'])
+                                      : null,
+                                  onChange: null,
+                                ),
                                 
                                 // Verification Status
                                 const SizedBox(height: 16),
@@ -831,6 +1616,7 @@ class _ProviderSettingsScreenState extends State<ProviderSettingsScreen> {
                         ],
                       ),
                     ),
+                    ),
             ),
           ],
         ),
@@ -838,7 +1624,15 @@ class _ProviderSettingsScreenState extends State<ProviderSettingsScreen> {
     );
   }
   
-  Widget _buildDocumentRow(BuildContext context, String label, String? url, IconData icon) {
+  Widget _buildDocumentRow(
+    BuildContext context,
+    String label,
+    String? url,
+    IconData icon, {
+    VoidCallback? onView,
+    VoidCallback? onChange,
+    bool saving = false,
+  }) {
     final hasDocument = url != null && url.isNotEmpty;
     
     return Container(
@@ -846,6 +1640,7 @@ class _ProviderSettingsScreenState extends State<ProviderSettingsScreen> {
       decoration: BoxDecoration(
         color: context.backgroundColor,
         borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: context.borderColor.withOpacity(0.5)),
       ),
       child: Row(
         children: [
@@ -864,29 +1659,50 @@ class _ProviderSettingsScreenState extends State<ProviderSettingsScreen> {
           ),
           const SizedBox(width: 12),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                    color: context.foregroundColor,
+            child: InkWell(
+              onTap: onView,
+              borderRadius: BorderRadius.circular(8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                      color: context.foregroundColor,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  hasDocument ? 'Uploaded' : 'Not uploaded',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: hasDocument ? AppColors.success : context.mutedForegroundColor,
+                  const SizedBox(height: 2),
+                  Text(
+                    hasDocument ? 'Tap to view • Uploaded' : 'Not uploaded',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: hasDocument ? AppColors.success : context.mutedForegroundColor,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
-          if (hasDocument)
+          if (hasDocument && onView != null)
+            IconButton(
+              onPressed: saving ? null : onView,
+              icon: const Icon(Iconsax.eye, size: 20),
+              tooltip: 'View',
+            ),
+          if (onChange != null)
+            TextButton(
+              onPressed: saving ? null : onChange,
+              child: saving
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('Change'),
+            ),
+          if (hasDocument && onView == null && onChange == null)
             Icon(
               Iconsax.tick_circle,
               color: AppColors.success,
@@ -901,6 +1717,7 @@ class _ProviderSettingsScreenState extends State<ProviderSettingsScreen> {
     final status = _providerData?['verification_status'] ?? 'pending';
     switch (status) {
       case 'verified':
+      case 'approved': // Backend uses 'approved', frontend may use 'verified'
         return AppColors.success;
       case 'rejected':
         return AppColors.error;
@@ -914,6 +1731,7 @@ class _ProviderSettingsScreenState extends State<ProviderSettingsScreen> {
     final status = _providerData?['verification_status'] ?? 'pending';
     switch (status) {
       case 'verified':
+      case 'approved': // Backend uses 'approved', frontend may use 'verified'
         return Iconsax.tick_circle;
       case 'rejected':
         return Iconsax.close_circle;
@@ -927,6 +1745,7 @@ class _ProviderSettingsScreenState extends State<ProviderSettingsScreen> {
     final status = _providerData?['verification_status'] ?? 'pending';
     switch (status) {
       case 'verified':
+      case 'approved': // Backend uses 'approved', frontend may use 'verified'
         return 'Verified ✓';
       case 'rejected':
         return 'Rejected - Please contact support';

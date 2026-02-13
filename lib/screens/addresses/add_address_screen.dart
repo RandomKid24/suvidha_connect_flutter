@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:go_router/go_router.dart';
 import 'package:iconsax/iconsax.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/theme_extensions.dart';
 import '../../services/api_service.dart';
@@ -16,6 +19,7 @@ class AddAddressScreen extends StatefulWidget {
 
 class _AddAddressScreenState extends State<AddAddressScreen> {
   final _formKey = GlobalKey<FormState>();
+  final _mapController = MapController();
   final _labelController = TextEditingController();
   final _addressLine1Controller = TextEditingController();
   final _addressLine2Controller = TextEditingController();
@@ -25,9 +29,18 @@ class _AddAddressScreenState extends State<AddAddressScreen> {
   final _countryController = TextEditingController(text: 'India');
   bool _isDefault = false;
   bool _isSubmitting = false;
+  bool _isLoadingLocation = false;
+  LatLng? _selectedLocation; // null until user allows location or taps map
+
+  @override
+  void initState() {
+    super.initState();
+    _getCurrentLocation();
+  }
 
   @override
   void dispose() {
+    _mapController.dispose();
     _labelController.dispose();
     _addressLine1Controller.dispose();
     _addressLine2Controller.dispose();
@@ -36,6 +49,62 @@ class _AddAddressScreenState extends State<AddAddressScreen> {
     _postalCodeController.dispose();
     _countryController.dispose();
     super.dispose();
+  }
+
+  Future<void> _getCurrentLocation() async {
+    setState(() => _isLoadingLocation = true);
+    try {
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        if (mounted) {
+          setState(() => _isLoadingLocation = false);
+          _selectedLocation ??= const LatLng(18.5204, 73.8567);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Location services are disabled. Tap the map to set position.')),
+          );
+        }
+        return;
+      }
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        if (mounted) {
+          setState(() {
+            _isLoadingLocation = false;
+            _selectedLocation ??= const LatLng(18.5204, 73.8567);
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Location permission denied. Tap the map to set position.')),
+          );
+        }
+        return;
+      }
+      Position position = await Geolocator.getCurrentPosition();
+      if (mounted) {
+        setState(() {
+          _selectedLocation = LatLng(position.latitude, position.longitude);
+          _isLoadingLocation = false;
+        });
+        _mapController.move(_selectedLocation!, 14.0);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoadingLocation = false;
+          _selectedLocation ??= const LatLng(18.5204, 73.8567);
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not get location: $e')),
+        );
+      }
+    }
+  }
+
+  void _onMapTap(TapPosition tapPosition, LatLng location) {
+    setState(() => _selectedLocation = location);
   }
 
   Future<void> _submitAddress() async {
@@ -54,6 +123,10 @@ class _AddAddressScreenState extends State<AddAddressScreen> {
       'postal_code': _postalCodeController.text.trim(),
       'country': _countryController.text.trim(),
       'is_default': _isDefault,
+      if (_selectedLocation != null) ...{
+        'latitude': double.parse(_selectedLocation!.latitude.toStringAsFixed(6)),
+        'longitude': double.parse(_selectedLocation!.longitude.toStringAsFixed(6)),
+      },
     };
 
     final result = await ApiService.createSavedAddress(addressData);
@@ -65,7 +138,11 @@ class _AddAddressScreenState extends State<AddAddressScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Address saved successfully')),
         );
-        context.pop(true); // Return true to indicate address was added
+        if (context.canPop()) {
+          context.pop(true);
+        } else {
+          context.go('/addresses');
+        }
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -84,6 +161,7 @@ class _AddAddressScreenState extends State<AddAddressScreen> {
     return Scaffold(
       backgroundColor: context.backgroundColor,
       body: SafeArea(
+        bottom: false,
         child: Column(
           children: [
             const AppHeader(),
@@ -253,6 +331,115 @@ class _AddAddressScreenState extends State<AddAddressScreen> {
                         ],
                       ).animate(delay: 500.ms).fadeIn(duration: 500.ms).moveY(begin: 20, end: 0),
                       
+                      const SizedBox(height: 20),
+                      Text(
+                        'Location (tap map to set)',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: context.foregroundColor,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Your position is used for the address. Tap the map to adjust the pin.',
+                        style: TextStyle(
+                          color: context.mutedForegroundColor,
+                          fontSize: 12,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Container(
+                        height: 220,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: context.borderColor),
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: Stack(
+                            children: [
+                              FlutterMap(
+                                mapController: _mapController,
+                                options: MapOptions(
+                                  initialCenter: _selectedLocation ?? const LatLng(18.5204, 73.8567),
+                                  initialZoom: 14.0,
+                                  onTap: _onMapTap,
+                                  minZoom: 3.0,
+                                  maxZoom: 18.0,
+                                ),
+                                children: [
+                                  TileLayer(
+                                    urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                                    userAgentPackageName: 'com.suvidha.connect',
+                                  ),
+                                  if (_selectedLocation != null)
+                                    MarkerLayer(
+                                      markers: [
+                                        Marker(
+                                          point: _selectedLocation!,
+                                          width: 44,
+                                          height: 44,
+                                          child: Container(
+                                            decoration: BoxDecoration(
+                                              color: AppColors.primary,
+                                              shape: BoxShape.circle,
+                                              border: Border.all(color: Colors.white, width: 2),
+                                              boxShadow: [
+                                                BoxShadow(
+                                                  color: Colors.black.withOpacity(0.25),
+                                                  blurRadius: 6,
+                                                  spreadRadius: 1,
+                                                ),
+                                              ],
+                                            ),
+                                            child: const Icon(Iconsax.location, color: Colors.white, size: 22),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                ],
+                              ),
+                              Positioned(
+                                bottom: 12,
+                                right: 12,
+                                child: Material(
+                                  color: AppColors.primary,
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: InkWell(
+                                    onTap: _isLoadingLocation ? null : _getCurrentLocation,
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: Padding(
+                                      padding: const EdgeInsets.all(10),
+                                      child: _isLoadingLocation
+                                          ? const SizedBox(
+                                              width: 22,
+                                              height: 22,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 2,
+                                                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                              ),
+                                            )
+                                          : const Icon(Iconsax.gps, color: Colors.white, size: 22),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ).animate(delay: 550.ms).fadeIn(duration: 500.ms).moveY(begin: 20, end: 0),
+                      if (_selectedLocation != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Text(
+                            'Lat: ${_selectedLocation!.latitude.toStringAsFixed(5)}, Lon: ${_selectedLocation!.longitude.toStringAsFixed(5)}',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: context.mutedForegroundColor,
+                            ),
+                          ),
+                        ),
                       const SizedBox(height: 16),
                       
                       CheckboxListTile(

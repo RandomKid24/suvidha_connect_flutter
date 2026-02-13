@@ -26,14 +26,13 @@ class CreateBookingScreen extends StatefulWidget {
 class _CreateBookingScreenState extends State<CreateBookingScreen> {
   final _formKey = GlobalKey<FormState>();
   final _descriptionController = TextEditingController();
-  final _addressController = TextEditingController();
   final _priceController = TextEditingController();
   DateTime? _selectedDate;
   bool _isSubmitting = false;
   List<dynamic> _savedAddresses = [];
   Map<String, dynamic>? _selectedAddress;
-  bool _useSavedAddress = false;
   bool _isLoadingAddresses = true;
+  bool _showAddressError = false;
 
   @override
   void initState() {
@@ -44,7 +43,6 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
   @override
   void dispose() {
     _descriptionController.dispose();
-    _addressController.dispose();
     _priceController.dispose();
     super.dispose();
   }
@@ -59,19 +57,22 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
           _savedAddresses = result['data'] as List;
           // If no addresses saved, redirect to add address
           if (_savedAddresses.isEmpty) {
+            final navigator = GoRouter.of(context);
             WidgetsBinding.instance.addPostFrameCallback((_) async {
               final shouldAdd = await showDialog<bool>(
                 context: context,
-                builder: (context) => AlertDialog(
+                builder: (dialogContext) => AlertDialog(
                   title: const Text('No Saved Address'),
-                  content: const Text('You need to save an address before booking. Would you like to add one now?'),
+                  content: const Text(
+                    "You don't have any saved address. Add an address from Profile to continue with booking.",
+                  ),
                   actions: [
                     TextButton(
-                      onPressed: () => Navigator.pop(context, false),
+                      onPressed: () => Navigator.pop(dialogContext, false),
                       child: const Text('Cancel'),
                     ),
                     TextButton(
-                      onPressed: () => Navigator.pop(context, true),
+                      onPressed: () => Navigator.pop(dialogContext, true),
                       style: TextButton.styleFrom(
                         foregroundColor: AppColors.primary,
                       ),
@@ -80,15 +81,9 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
                   ],
                 ),
               );
-              
               if (shouldAdd == true && mounted) {
-                final result = await context.push('/add-address');
-                // Reload addresses after adding
-                if (result == true && mounted) {
-                  _loadSavedAddresses();
-                } else if (mounted) {
-                  context.pop(); // Go back if address not added
-                }
+                context.pop(); // Leave create-booking screen first
+                navigator.go('/add-address'); // Navigate to Profile section Add Address page
               } else if (shouldAdd == false && mounted) {
                 context.pop(); // Go back from booking screen
               }
@@ -101,12 +96,13 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
               (addr) => addr['is_default'] == true,
             );
             if (defaultAddress != null) {
-              _selectedAddress = defaultAddress;
-              _useSavedAddress = true;
-              _addressController.text = defaultAddress['full_address'] ?? '';
+              _selectedAddress = defaultAddress as Map<String, dynamic>;
             }
           } catch (e) {
-            // No default address found
+            // No default address found; select first
+            if (_savedAddresses.isNotEmpty) {
+              _selectedAddress = _savedAddresses.first as Map<String, dynamic>;
+            }
           }
         }
       });
@@ -157,12 +153,20 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
       setState(() => _isSubmitting = false);
       return;
     }
+    if (_selectedAddress == null || _selectedAddress!['id'] == null) {
+      setState(() {
+        _isSubmitting = false;
+        _showAddressError = true;
+      });
+      return;
+    }
+    setState(() => _showAddressError = false);
 
     final bookingData = {
       'provider_id': int.parse(widget.providerId),
       'service_category_id': int.parse(widget.serviceCategoryId!),
       'description': _descriptionController.text.trim(),
-      'address': _addressController.text.trim(),
+      'saved_address_id': _selectedAddress!['id'] as int,
       'scheduled_date': _selectedDate != null
           ? _selectedDate!.toIso8601String()
           : null,
@@ -256,125 +260,210 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
                       
                       const SizedBox(height: 16),
                       
-                      // Saved Addresses Section
-                      if (_savedAddresses.isNotEmpty) ...[
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: context.cardColor,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: context.borderColor),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Row(
-                                children: [
-                                  Checkbox(
-                                    value: _useSavedAddress,
-                                    onChanged: (value) {
+                      // Service address: selectable saved-address cards
+                      if (_savedAddresses.isNotEmpty)
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          key: const ValueKey('service_address_section'),
+                          children: [
+                            Row(
+                              children: [
+                                Icon(
+                                  Iconsax.location,
+                                  size: 20,
+                                  color: AppColors.primary,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'Service address',
+                                        style: TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w600,
+                                          color: context.foregroundColor,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        'Where should we provide the service?',
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          color: context.mutedForegroundColor,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            ...List.generate(_savedAddresses.length, (index) {
+                              final address = _savedAddresses[index] as Map<String, dynamic>;
+                              final label = address['label'] ?? 'Address';
+                              final fullAddress = address['full_address'] ?? '';
+                              final isDefault = address['is_default'] == true;
+                              final isSelected = _selectedAddress?['id'] == address['id'];
+                              return Padding(
+                                padding: EdgeInsets.only(
+                                    bottom: index < _savedAddresses.length - 1 ? 10 : 0),
+                                child: Material(
+                                  color: Colors.transparent,
+                                  child: InkWell(
+                                    onTap: () {
                                       setState(() {
-                                        _useSavedAddress = value ?? false;
-                                        if (_useSavedAddress && _selectedAddress != null) {
-                                          _addressController.text = _selectedAddress!['full_address'] ?? '';
-                                        } else {
-                                          _addressController.clear();
-                                        }
+                                        _selectedAddress = address;
+                                        _showAddressError = false;
                                       });
                                     },
-                                    activeColor: AppColors.primary,
-                                  ),
-                                  Expanded(
-                                    child: Text(
-                                      'Use saved address',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.w600,
-                                        color: context.foregroundColor,
+                                    borderRadius: BorderRadius.circular(14),
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 14, vertical: 14),
+                                      decoration: BoxDecoration(
+                                        color: isSelected
+                                            ? AppColors.primary.withOpacity(0.08)
+                                            : context.cardColor,
+                                        borderRadius: BorderRadius.circular(14),
+                                        border: Border.all(
+                                          color: isSelected
+                                              ? AppColors.primary
+                                              : context.borderColor,
+                                          width: isSelected ? 2 : 1,
+                                        ),
+                                        boxShadow: isSelected
+                                            ? [
+                                                BoxShadow(
+                                                  color: AppColors.primary.withOpacity(0.15),
+                                                  blurRadius: 8,
+                                                  offset: const Offset(0, 2),
+                                                ),
+                                              ]
+                                            : null,
                                       ),
+                                      child: Row(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Container(
+                                            width: 40,
+                                            height: 40,
+                                            decoration: BoxDecoration(
+                                              color: isSelected
+                                                  ? AppColors.primary.withOpacity(0.2)
+                                                  : context.mutedColor,
+                                              borderRadius: BorderRadius.circular(10),
+                                            ),
+                                            alignment: Alignment.center,
+                                            child: Icon(
+                                              isDefault
+                                                  ? Iconsax.home_2
+                                                  : Iconsax.building_4,
+                                              size: 20,
+                                              color: isSelected
+                                                  ? AppColors.primary
+                                                  : context.mutedForegroundColor,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 12),
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                Row(
+                                                  children: [
+                                                    Text(
+                                                      label,
+                                                      style: TextStyle(
+                                                        fontSize: 15,
+                                                        fontWeight: FontWeight.w600,
+                                                        color: context.foregroundColor,
+                                                      ),
+                                                    ),
+                                                    if (isDefault) ...[
+                                                      const SizedBox(width: 6),
+                                                      Container(
+                                                        padding: const EdgeInsets
+                                                            .symmetric(
+                                                          horizontal: 6,
+                                                          vertical: 2,
+                                                        ),
+                                                        decoration: BoxDecoration(
+                                                          color: AppColors.primary
+                                                              .withOpacity(0.15),
+                                                          borderRadius:
+                                                              BorderRadius.circular(6),
+                                                        ),
+                                                        child: Text(
+                                                          'Default',
+                                                          style: TextStyle(
+                                                            fontSize: 11,
+                                                            fontWeight:
+                                                                FontWeight.w600,
+                                                            color: AppColors.primary,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ],
+                                                ),
+                                                const SizedBox(height: 4),
+                                                Text(
+                                                  fullAddress,
+                                                  style: TextStyle(
+                                                    fontSize: 13,
+                                                    color:
+                                                        context.mutedForegroundColor,
+                                                    height: 1.35,
+                                                  ),
+                                                  maxLines: 2,
+                                                  overflow: TextOverflow.ellipsis,
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Icon(
+                                            isSelected
+                                                ? Iconsax.tick_circle5
+                                                : Icons.radio_button_unchecked,
+                                            size: 24,
+                                            color: isSelected
+                                                ? AppColors.primary
+                                                : context.borderColor,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              );
+                            }),
+                            if (_showAddressError) ...[
+                              const SizedBox(height: 8),
+                              Row(
+                                children: [
+                                  Icon(
+                                    Iconsax.info_circle,
+                                    size: 16,
+                                    color: AppColors.error,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    'Please select a saved address',
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      color: AppColors.error,
+                                      fontWeight: FontWeight.w500,
                                     ),
                                   ),
                                 ],
                               ),
-                              if (_useSavedAddress) ...[
-                                const SizedBox(height: 8),
-                                DropdownButtonFormField<Map<String, dynamic>>(
-                                  value: _selectedAddress,
-                                  isExpanded: true,
-                                  isDense: true,
-                                  decoration: InputDecoration(
-                                    labelText: 'Select Address',
-                                    prefixIcon: const Icon(Iconsax.location),
-                                    border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                                  ),
-                                  menuMaxHeight: 300,
-                                  items: _savedAddresses.map((address) {
-                                    final label = address['label'] ?? 'Address';
-                                    final fullAddress = address['full_address'] ?? '';
-                                    final isDefault = address['is_default'] == true;
-                                    
-                                    // Create a compact display text
-                                    String displayText = label;
-                                    if (isDefault) {
-                                      displayText += ' (Default)';
-                                    }
-                                    displayText += '\n$fullAddress';
-                                    
-                                    return DropdownMenuItem<Map<String, dynamic>>(
-                                      value: address,
-                                      child: Text(
-                                        displayText,
-                                        style: TextStyle(
-                                          fontWeight: isDefault ? FontWeight.w600 : FontWeight.normal,
-                                          fontSize: 13,
-                                          color: isDefault ? AppColors.primary : null,
-                                        ),
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    );
-                                  }).toList(),
-                                  onChanged: (address) {
-                                    setState(() {
-                                      _selectedAddress = address;
-                                      if (address != null) {
-                                        _addressController.text = address['full_address'] ?? '';
-                                      }
-                                    });
-                                  },
-                                ),
-                              ],
                             ],
-                          ),
+                          ],
                         ).animate(delay: 300.ms).fadeIn(duration: 500.ms).moveY(begin: 20, end: 0),
-                        const SizedBox(height: 16),
-                      ],
-                      
-                      // Address field
-                      TextFormField(
-                        controller: _addressController,
-                        enabled: !_useSavedAddress,
-                        decoration: InputDecoration(
-                          labelText: _useSavedAddress ? 'Service Address (from saved)' : 'Service Address',
-                          hintText: 'Enter the address where service is needed',
-                          prefixIcon: const Icon(Iconsax.location),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          filled: _useSavedAddress,
-                          fillColor: _useSavedAddress ? context.mutedColor.withOpacity(0.3) : null,
-                        ),
-                        maxLines: 3,
-                        validator: (value) {
-                          if (value == null || value.trim().isEmpty) {
-                            return 'Please enter the service address';
-                          }
-                          return null;
-                        },
-                      ).animate(delay: 350.ms).fadeIn(duration: 500.ms).moveY(begin: 20, end: 0),
                       
                       const SizedBox(height: 16),
                       

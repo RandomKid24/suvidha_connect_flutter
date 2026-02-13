@@ -6,6 +6,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/theme_extensions.dart';
 import '../../../services/api_service.dart';
 
 class OnboardingStep1Screen extends StatefulWidget {
@@ -135,14 +136,24 @@ class _OnboardingStep1ScreenState extends State<OnboardingStep1Screen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: context.backgroundColor,
       appBar: AppBar(
-        backgroundColor: AppColors.background,
+        backgroundColor: context.backgroundColor,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        iconTheme: IconThemeData(color: context.foregroundColor),
+        title: Text(
+          'Step 1: Location',
+          style: TextStyle(
+            color: context.foregroundColor,
+            fontSize: 18,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
         leading: IconButton(
-          icon: const Icon(Iconsax.arrow_left),
+          icon: Icon(Iconsax.arrow_left, color: context.foregroundColor),
           onPressed: () => context.go('/role-select'),
         ),
-        title: const Text('Step 1: Location'),
       ),
       body: SafeArea(
         child: Column(
@@ -166,7 +177,7 @@ class _OnboardingStep1ScreenState extends State<OnboardingStep1Screen> {
                     child: Container(
                       height: 4,
                       decoration: BoxDecoration(
-                        color: AppColors.border,
+                        color: context.borderColor,
                         borderRadius: BorderRadius.circular(2),
                       ),
                     ),
@@ -176,7 +187,7 @@ class _OnboardingStep1ScreenState extends State<OnboardingStep1Screen> {
                     child: Container(
                       height: 4,
                       decoration: BoxDecoration(
-                        color: AppColors.border,
+                        color: context.borderColor,
                         borderRadius: BorderRadius.circular(2),
                       ),
                     ),
@@ -196,11 +207,12 @@ class _OnboardingStep1ScreenState extends State<OnboardingStep1Screen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
+                    Text(
                       'Select Your Location',
                       style: TextStyle(
                         fontSize: 24,
                         fontWeight: FontWeight.bold,
+                        color: context.foregroundColor,
                       ),
                     ).animate().fadeIn(duration: 500.ms).moveY(begin: 20, end: 0),
                     
@@ -209,7 +221,7 @@ class _OnboardingStep1ScreenState extends State<OnboardingStep1Screen> {
                     Text(
                       'Tap on the map to select your service location',
                       style: TextStyle(
-                        color: AppColors.mutedForeground,
+                        color: context.mutedForegroundColor,
                         fontSize: 14,
                       ),
                     ).animate().fadeIn(duration: 500.ms, delay: 100.ms).moveY(begin: 20, end: 0),
@@ -221,7 +233,7 @@ class _OnboardingStep1ScreenState extends State<OnboardingStep1Screen> {
                       height: 300,
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: AppColors.border),
+                        border: Border.all(color: context.borderColor),
                       ),
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(12),
@@ -306,23 +318,26 @@ class _OnboardingStep1ScreenState extends State<OnboardingStep1Screen> {
                         Text(
                           'Address',
                           style: TextStyle(
-                            color: AppColors.mutedForeground,
+                            color: context.mutedForegroundColor,
                             fontSize: 14,
                           ),
                         ),
                         const SizedBox(height: 8),
                         Container(
                           decoration: BoxDecoration(
-                            border: Border.all(color: AppColors.border),
+                            color: context.cardColor,
+                            border: Border.all(color: context.borderColor),
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: TextField(
                             onChanged: (value) => _locationString = value,
+                            style: TextStyle(color: context.foregroundColor),
                             decoration: InputDecoration(
                               border: InputBorder.none,
                               contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                              prefixIcon: const Icon(Iconsax.location, color: AppColors.mutedForeground),
+                              prefixIcon: Icon(Iconsax.location, color: context.mutedForegroundColor),
                               hintText: 'Enter your address',
+                              hintStyle: TextStyle(color: context.mutedForegroundColor),
                             ),
                           ),
                         ),
@@ -338,23 +353,26 @@ class _OnboardingStep1ScreenState extends State<OnboardingStep1Screen> {
                         Text(
                           'Referral Code (Optional)',
                           style: TextStyle(
-                            color: AppColors.mutedForeground,
+                            color: context.mutedForegroundColor,
                             fontSize: 14,
                           ),
                         ),
                         const SizedBox(height: 8),
                         Container(
                           decoration: BoxDecoration(
-                            border: Border.all(color: AppColors.border),
+                            color: context.cardColor,
+                            border: Border.all(color: context.borderColor),
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: TextField(
                             controller: _referralCodeController,
+                            style: TextStyle(color: context.foregroundColor),
                             decoration: InputDecoration(
                               border: InputBorder.none,
                               contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                              prefixIcon: const Icon(Iconsax.gift, color: AppColors.mutedForeground),
+                              prefixIcon: Icon(Iconsax.gift, color: context.mutedForegroundColor),
                               hintText: 'Enter referral code if you have one',
+                              hintStyle: TextStyle(color: context.mutedForegroundColor),
                             ),
                           ),
                         ),

@@ -77,15 +77,53 @@ class _SuvidhaConnectAppState extends State<SuvidhaConnectApp> {
     return ValueListenableBuilder<ThemeMode>(
       valueListenable: ThemeService.themeNotifier,
       builder: (context, themeMode, child) {
-        return MaterialApp.router(
-          title: 'Suvidha',
-          debugShowCheckedModeBanner: false,
-          theme: AppTheme.lightTheme,
-          darkTheme: AppTheme.darkTheme,
-          themeMode: themeMode,
-          routerConfig: appRouter,
+        return PopScope(
+          canPop: false,
+          onPopInvokedWithResult: (didPop, result) {
+            if (didPop) return;
+            final canPop = appRootNavigatorKey.currentState?.canPop() ?? false;
+            if (canPop) {
+              appRouter.pop();
+            } else {
+              _showExitConfirmation();
+            }
+          },
+          child: MaterialApp.router(
+            title: 'Suvidha',
+            debugShowCheckedModeBanner: false,
+            theme: AppTheme.lightTheme,
+            darkTheme: AppTheme.darkTheme,
+            themeMode: themeMode,
+            routerConfig: appRouter,
+          ),
         );
       },
+    );
+  }
+
+  void _showExitConfirmation() {
+    final context = appRootNavigatorKey.currentContext;
+    if (context == null || !context.mounted) return;
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Exit app?'),
+        content: const Text('Do you want to exit the app?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.of(dialogContext).pop();
+              SystemNavigator.pop();
+            },
+            child: const Text('Exit'),
+          ),
+        ],
+      ),
     );
   }
 }

@@ -3,8 +3,13 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:iconsax/iconsax.dart';
 import 'package:intl/intl.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/theme_extensions.dart';
+import '../../core/booking_card_refresh.dart';
+import '../../core/wallet_refresh.dart';
 import '../../services/api_service.dart';
 import '../../services/notification_scheduler_service.dart';
 import '../../widgets/app_header.dart';
@@ -24,6 +29,10 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
   String? _error;
   String? _userRole;
   Timer? _refreshTimer;
+  bool _arrivedLoading = false;
+  bool _arrivedSent = false;
+  /// Exact backend error when Mark as Complete fails (e.g. insufficient balance). Shown in card above actions.
+  String? _completeErrorMessage;
 
   @override
   void initState() {
@@ -57,7 +66,7 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
     }
   }
 
-  Future<void> _loadBookingDetails() async {
+  Future<void> _loadBookingDetails({bool forceRefresh = false}) async {
     setState(() {
       _isLoading = true;
       _error = null;
@@ -73,7 +82,7 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
     }
 
     // Get all bookings and find the one we need
-    final result = await ApiService.getUserBookings(forceRefresh: false);
+    final result = await ApiService.getUserBookings(forceRefresh: forceRefresh);
     
     if (mounted) {
       setState(() {
@@ -177,6 +186,76 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
       'providerId': providerId,
       'bookingId': int.tryParse(widget.bookingId),
     });
+  }
+
+  Future<void> _handleArrivedAtLocation() async {
+    final bookingId = int.tryParse(widget.bookingId);
+    if (bookingId == null) return;
+    setState(() => _arrivedLoading = true);
+    final result = await ApiService.arrivedAtLocation(bookingId);
+    if (mounted) {
+      setState(() {
+        _arrivedLoading = false;
+        if (result['success'] == true) _arrivedSent = true;
+      });
+      if (result['success'] == true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Customer has been notified that you arrived.')),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(result['error']?['message'] ?? 'Failed to send notification')),
+        );
+      }
+    }
+  }
+
+  Future<void> _openDialer(String phone) async {
+    final tel = phone.replaceAll(RegExp(r'[\s\-\(\)]'), '');
+    if (tel.isEmpty) return;
+    final uri = Uri(scheme: 'tel', path: tel);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri);
+    } else if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not open dialer.')),
+      );
+    }
+  }
+
+  Future<void> _handleCompleteBooking() async {
+    final bookingId = int.tryParse(widget.bookingId);
+    if (bookingId == null) return;
+
+    setState(() => _completeErrorMessage = null);
+
+    final result = await ApiService.completeBooking(bookingId);
+    if (mounted) {
+      if (result['success'] == true) {
+        setState(() => _completeErrorMessage = null);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Service marked as completed. Payment will be processed.')),
+        );
+        WalletRefreshNotifier.notifyRefresh();
+        BookingCardRefreshNotifier.notifyRefresh();
+        _loadBookingDetails();
+      } else {
+        final String message = _parseCompleteBookingError(result['error']);
+        setState(() => _completeErrorMessage = message);
+      }
+    }
+  }
+
+  /// Parse backend error so provider sees exact reason (e.g. insufficient balance with amounts).
+  String _parseCompleteBookingError(dynamic err) {
+    if (err == null) return 'Failed to complete booking.';
+    if (err is String) return err.isNotEmpty ? err : 'Failed to complete booking.';
+    if (err is Map) {
+      final msg = err['error'] ?? err['message'] ?? err['detail'];
+      if (msg != null && msg.toString().trim().isNotEmpty) return msg.toString().trim();
+      if (err.length == 1) return err.values.first?.toString().trim() ?? 'Failed to complete booking.';
+    }
+    return 'Failed to complete booking.';
   }
 
   Future<void> _handlePayBooking() async {
@@ -396,10 +475,16 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
                     )
                   : _booking == null
                     ? const Center(child: Text('Booking not found'))
-                    : SingleChildScrollView(
-                        padding: EdgeInsets.only(
-                          left: 16,
-                          right: 16,
+                    : RefreshIndicator(
+                        onRefresh: () async {
+                          await _loadBookingDetails(forceRefresh: true);
+                          BookingCardRefreshNotifier.notifyRefresh();
+                        },
+                        child: SingleChildScrollView(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          padding: EdgeInsets.only(
+                            left: 16,
+                            right: 16,
                           top: 16,
                           bottom: 16 + MediaQuery.of(context).padding.bottom,
                         ),
@@ -422,11 +507,18 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
                             _buildUserInfoSection(context),
                             const SizedBox(height: 16),
                             
+                            // Complete booking error card (provider): exact backend reason e.g. insufficient balance
+                            if (_completeErrorMessage != null) ...[
+                              _buildCompleteErrorCard(context),
+                              const SizedBox(height: 16),
+                            ],
+                            
                             // Actions
                             _buildActionButtons(context),
                           ],
                         ),
                       ),
+                        ),
             ),
           ],
         ),
@@ -644,7 +736,7 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
           const SizedBox(height: 16),
           _buildDetailRow(context, Iconsax.calendar, 'Date & Time', displayDateTime),
           const SizedBox(height: 12),
-          _buildDetailRow(context, Iconsax.location, 'Address', address),
+          _buildLocationSection(context, address),
           const SizedBox(height: 12),
           priceWidget,
           const SizedBox(height: 12),
@@ -685,6 +777,190 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
         ),
       ],
     );
+  }
+
+  /// Service address with optional map and "Get direction" on Google Maps.
+  Widget _buildLocationSection(BuildContext context, String addressText) {
+    final savedAddress = _booking!['saved_address'] as Map<String, dynamic>?;
+    final latRaw = savedAddress?['latitude'];
+    final lngRaw = savedAddress?['longitude'];
+    double? lat;
+    double? lng;
+    if (latRaw != null && lngRaw != null) {
+      lat = latRaw is num ? latRaw.toDouble() : double.tryParse(latRaw.toString());
+      lng = lngRaw is num ? lngRaw.toDouble() : double.tryParse(lngRaw.toString());
+    }
+    final hasCoords = lat != null && lng != null;
+    final LatLng? location = hasCoords ? LatLng(lat!, lng!) : null;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Iconsax.location, size: 20, color: context.mutedForegroundColor),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Address',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: context.mutedForegroundColor,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    addressText,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                      color: context.foregroundColor,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        if (location != null) ...[
+          const SizedBox(height: 12),
+          Container(
+            height: 180,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: context.borderColor),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: FlutterMap(
+                options: MapOptions(
+                  initialCenter: location,
+                  initialZoom: 15.0,
+                  interactionOptions: const InteractionOptions(
+                    flags: InteractiveFlag.pinchZoom | InteractiveFlag.drag,
+                  ),
+                ),
+                children: [
+                  TileLayer(
+                    urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                    userAgentPackageName: 'com.suvidha.connect',
+                  ),
+                  MarkerLayer(
+                    markers: [
+                      Marker(
+                        point: location,
+                        width: 44,
+                        height: 44,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: AppColors.primary,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white, width: 2),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.25),
+                                blurRadius: 6,
+                                spreadRadius: 1,
+                              ),
+                            ],
+                          ),
+                          child: const Icon(Iconsax.location, color: Colors.white, size: 22),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+        const SizedBox(height: 10),
+        OutlinedButton.icon(
+          onPressed: () => _openGoogleMapsDirections(lat: lat, lng: lng, address: addressText),
+          icon: const Icon(Iconsax.driver_2, size: 20),
+          label: const Text('Get direction on Google Maps'),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: AppColors.primary,
+            side: const BorderSide(color: AppColors.primary),
+            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+          ),
+        ),
+        // Provider only: notify customer that provider has arrived
+        if (_userRole == 'provider') ...[
+          const SizedBox(height: 10),
+          Builder(
+            builder: (context) {
+              final status = _booking!['status'] ?? '';
+              final showArrived = (status == 'accepted' || status == 'in_progress') && !_arrivedSent;
+              if (!showArrived) {
+                if (_arrivedSent)
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Row(
+                      children: [
+                        Icon(Iconsax.tick_circle5, size: 20, color: AppColors.success),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Customer notified (you arrived)',
+                          style: TextStyle(fontSize: 14, color: AppColors.success, fontWeight: FontWeight.w500),
+                        ),
+                      ],
+                    ),
+                  );
+                return const SizedBox.shrink();
+              }
+              return SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: _arrivedLoading ? null : _handleArrivedAtLocation,
+                  icon: _arrivedLoading
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation<Color>(Colors.white)),
+                        )
+                      : const Icon(Iconsax.location_tick, size: 20),
+                  label: Text(_arrivedLoading ? 'Sending…' : 'Arrived at location'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.success,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                  ),
+                ),
+              );
+            },
+          ),
+        ],
+      ],
+    );
+  }
+
+  Future<void> _openGoogleMapsDirections({double? lat, double? lng, String? address}) async {
+    String url;
+    if (lat != null && lng != null) {
+      url = 'https://www.google.com/maps/dir/?api=1&destination=$lat,$lng';
+    } else if (address != null && address.isNotEmpty && address != 'Not specified') {
+      url = 'https://www.google.com/maps/search/?api=1&query=${Uri.encodeComponent(address)}';
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No location or address available for directions.')),
+        );
+      }
+      return;
+    }
+    final uri = Uri.parse(url);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } else if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not open Google Maps.')),
+      );
+    }
   }
 
   Widget _buildServiceSection(BuildContext context) {
@@ -740,11 +1016,11 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
   Widget _buildUserInfoSection(BuildContext context) {
     final isProvider = _userRole == 'provider';
     final userName = isProvider 
-      ? (_booking!['customer_name'] ?? _booking!['customer']?['name'] ?? 'Customer')
+      ? (_booking!['customer_name'] ?? _booking!['customer']?['name'] ?? _booking!['customer']?['first_name'] ?? 'Customer')
       : (_booking!['provider_name'] ?? _booking!['provider']?['name'] ?? 'Provider');
     final userPhone = isProvider
       ? (_booking!['customer']?['phone'] ?? '')
-      : (_booking!['provider']?['phone'] ?? '');
+      : (_booking!['provider']?['contact'] ?? _booking!['provider']?['phone'] ?? '');
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -785,18 +1061,84 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
                     color: context.foregroundColor,
                   ),
                 ),
-                if (userPhone.isNotEmpty) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    userPhone,
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: context.mutedForegroundColor,
+                if (userPhone.toString().trim().isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  InkWell(
+                    onTap: () => _openDialer(userPhone.toString().trim()),
+                    borderRadius: BorderRadius.circular(8),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 0),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Iconsax.call, size: 18, color: AppColors.primary),
+                          const SizedBox(width: 6),
+                          Text(
+                            userPhone.toString().trim(),
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: AppColors.primary,
+                              fontWeight: FontWeight.w500,
+                              decoration: TextDecoration.underline,
+                              decorationColor: AppColors.primary,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ],
               ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCompleteErrorCard(BuildContext context) {
+    final message = _completeErrorMessage ?? '';
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.error.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.error.withOpacity(0.5)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Iconsax.warning_2, color: AppColors.error, size: 24),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Could not complete order',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.error,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  message,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: context.foregroundColor,
+                    height: 1.35,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            icon: Icon(Iconsax.close_circle, color: AppColors.error, size: 22),
+            onPressed: () => setState(() => _completeErrorMessage = null),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
           ),
         ],
       ),
@@ -837,14 +1179,14 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
           ),
           const SizedBox(height: 12),
         ],
-        // Payment button (customer only)
-        if (!isProvider && status == 'payment') ...[
+        // Mark as Complete (provider only, when accepted or in_progress)
+        if (isProvider && (status == 'accepted' || status == 'in_progress')) ...[
           ElevatedButton.icon(
-            onPressed: _handlePayBooking,
-            icon: const Icon(Iconsax.wallet),
-            label: const Text('Pay Now'),
+            onPressed: _handleCompleteBooking,
+            icon: const Icon(Iconsax.tick_circle),
+            label: const Text('Mark as Complete'),
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.green,
+              backgroundColor: AppColors.success,
               foregroundColor: Colors.white,
               padding: const EdgeInsets.symmetric(vertical: 16),
               minimumSize: const Size(double.infinity, 50),

@@ -9,6 +9,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/theme_extensions.dart';
 import '../../services/api_service.dart';
 import '../../widgets/app_header.dart';
+import '../../widgets/provider_avatar.dart';
 
 class ExploreScreen extends StatefulWidget {
   final String serviceId;
@@ -25,6 +26,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
   bool _isLoading = true;
   String _serviceName = '';
   int? _selectedServiceId;
+  int? _initialServiceId; // from route, restored when search is cleared
   final TextEditingController _searchController = TextEditingController();
   bool _useLocationFilter = true; // Enabled by default to show 30km radius providers
   bool _availableOnly = false;
@@ -49,7 +51,11 @@ class _ExploreScreenState extends State<ExploreScreen> {
   Future<void> _initializeData() async {
     // Load service categories first to set the selected service ID
     await _loadServiceCategories();
-    // Then load providers with the correct filter
+    // Get user location before loading providers when "Near me" is on, so radius is from current location
+    if (_useLocationFilter) {
+      await _getUserLocation();
+    }
+    // Then load providers (with lat/lon + radius when Near me is enabled)
     await _loadProviders();
   }
 
@@ -80,9 +86,15 @@ class _ExploreScreenState extends State<ExploreScreen> {
       }
 
       Position position = await Geolocator.getCurrentPosition();
-      setState(() {
-        _userPosition = position;
-      });
+      if (mounted) {
+        setState(() {
+          _userPosition = position;
+        });
+        // Reload providers so radius filter uses current location (when Near me is on)
+        if (_useLocationFilter) {
+          _loadProviders();
+        }
+      }
     } catch (e) {
       print('Error getting location: $e');
     }
@@ -101,14 +113,14 @@ class _ExploreScreenState extends State<ExploreScreen> {
       
       setState(() {
         _serviceCategories = categoriesList.where((s) => s['is_active'] == true).toList();
-        
-        // Set initial selected service
+        // Set initial selected service from route
         final category = categoriesList.firstWhere(
           (cat) => cat['slug'] == widget.serviceId,
           orElse: () => null,
         );
         if (category != null) {
           _selectedServiceId = category['id'];
+          _initialServiceId = category['id'];
           _serviceName = category['name'] ?? _serviceName;
         }
       });
@@ -125,23 +137,49 @@ class _ExploreScreenState extends State<ExploreScreen> {
         .join(' ');
   }
 
-  Future<void> _loadProviders() async {
+  /// If search text matches a category name, return that category's id so we can filter by category.
+  int? _categoryIdFromSearch(String query) {
+    if (query.trim().isEmpty || _serviceCategories.isEmpty) return null;
+    final q = query.trim().toLowerCase();
+    for (final cat in _serviceCategories) {
+      final name = (cat['name'] ?? '').toString().toLowerCase();
+      if (name.contains(q) || q.contains(name)) return cat['id'] as int?;
+    }
+    return null;
+  }
+
+  Future<void> _loadProviders({bool forceRefresh = false}) async {
     setState(() => _isLoading = true);
-    
-    final searchQuery = _searchController.text.isNotEmpty ? _searchController.text : null;
-    print('🔍 Loading providers with search query: "$searchQuery"');
+
+    final searchQuery = _searchController.text.isNotEmpty ? _searchController.text.trim() : null;
+    // When user types a category name, filter by that category directly
+    final categoryFromSearch = searchQuery != null ? _categoryIdFromSearch(searchQuery) : null;
+    final effectiveCategoryId = categoryFromSearch ?? _selectedServiceId;
+    if (categoryFromSearch != null && mounted) {
+      final cat = _serviceCategories.firstWhere(
+        (c) => c['id'] == categoryFromSearch,
+        orElse: () => null,
+      );
+      if (cat != null) {
+        setState(() {
+          _selectedServiceId = categoryFromSearch;
+          _serviceName = cat['name'] ?? _serviceName;
+        });
+      }
+    }
+    print('🔍 Loading providers with search query: "$searchQuery", category: $effectiveCategoryId');
     print('📍 Service category ID: $_selectedServiceId');
-    
-    // Fetch providers with filters (use cache by default)
+
+    // Fetch providers with filters
     final result = await ApiService.getProviders(
-      serviceCategoryId: _selectedServiceId,
+      serviceCategoryId: effectiveCategoryId,
       searchQuery: searchQuery,
       latitude: _useLocationFilter && _userPosition != null ? _userPosition!.latitude : null,
       longitude: _useLocationFilter && _userPosition != null ? _userPosition!.longitude : null,
       radius: _useLocationFilter ? _radius : null, // Use selected radius
       availableOnly: _availableOnly ? true : null,
       sortBy: _sortBy,
-      forceRefresh: false, // Use cache by default
+      forceRefresh: forceRefresh,
     );
     
     if (mounted) {
@@ -173,11 +211,17 @@ class _ExploreScreenState extends State<ExploreScreen> {
           children: [
             const AppHeader(),
             Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
+              child: RefreshIndicator(
+                onRefresh: () async {
+                  await _loadServiceCategories(forceRefresh: true);
+                  await _loadProviders(forceRefresh: true);
+                },
+                child: SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
                     // Title
                     Text(
                       'Explore Providers',
@@ -207,7 +251,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                       child: TextField(
                         controller: _searchController,
                         decoration: InputDecoration(
-                          hintText: 'Search by name, service, or location...',
+                          hintText: 'Search by name, category, or location...',
                           hintStyle: TextStyle(color: context.mutedForegroundColor, fontSize: 14),
                           prefixIcon: Icon(Iconsax.search_normal, color: AppColors.primary, size: 22),
                           suffixIcon: _searchController.text.isNotEmpty
@@ -215,6 +259,17 @@ class _ExploreScreenState extends State<ExploreScreen> {
                                   icon: Icon(Iconsax.close_circle, color: context.mutedForegroundColor),
                                   onPressed: () {
                                     _searchController.clear();
+                                    if (_initialServiceId != null) {
+                                      for (final c in _serviceCategories) {
+                                        if (c['id'] == _initialServiceId) {
+                                          setState(() {
+                                            _selectedServiceId = _initialServiceId;
+                                            _serviceName = c['name'] ?? _serviceName;
+                                          });
+                                          break;
+                                        }
+                                      }
+                                    }
                                     _applyFilters();
                                   },
                                 )
@@ -521,6 +576,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                   ],
                 ),
               ),
+              ),
             ),
           ],
         ),
@@ -556,32 +612,10 @@ class _ExploreScreenState extends State<ExploreScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Provider image
-            ClipRRect(
+            ProviderAvatar(
+              imageUrl: profilePhoto,
+              size: 48,
               borderRadius: BorderRadius.circular(24),
-              child: profilePhoto != null
-                  ? CachedNetworkImage(
-                      imageUrl: profilePhoto,
-                      width: 48,
-                      height: 48,
-                      fit: BoxFit.cover,
-                      placeholder: (context, url) => Container(
-                        width: 48,
-                        height: 48,
-                        color: context.mutedColor,
-                      ),
-                      errorWidget: (context, url, error) => Container(
-                        width: 48,
-                        height: 48,
-                        color: context.mutedColor,
-                        child: const Icon(Iconsax.user),
-                      ),
-                    )
-                  : Container(
-                      width: 48,
-                      height: 48,
-                      color: context.mutedColor,
-                      child: const Icon(Iconsax.user),
-                    ),
             ),
             
             const SizedBox(width: 12),

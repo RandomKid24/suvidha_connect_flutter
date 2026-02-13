@@ -32,7 +32,7 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _handleLogin() async {
     if (_emailController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter your username or email')),
+        const SnackBar(content: Text('Please enter your email')),
       );
       return;
     }
@@ -64,69 +64,60 @@ class _LoginScreenState extends State<LoginScreen> {
 
     if (mounted) {
       if (result['success'] == true) {
-        final userData = result['data']?['user'];
-        final responseData = result['data'];
+        final userData = result['data'];
+        final role = userData?['role'];
         
-        if (userData != null && userData['role'] == 'provider') {
-          // Check if onboarding is incomplete from login response
-          final onboardingComplete = responseData['onboarding_complete'] ?? true;
-          
-          if (onboardingComplete == false) {
-            // Onboarding not complete, redirect to onboarding step 1
-            print('📍 Provider onboarding incomplete, redirecting to step 1');
-            if (mounted) {
-              context.go('/provider-onboarding/step1');
+        if (role == 'provider') {
+          // Always fetch provider status to decide: resume onboarding, pending approval, or home
+          final statusResult = await ApiService.getProviderStatus(forceRefresh: true);
+          if (statusResult['success'] == true && statusResult['data'] != null) {
+            final statusData = statusResult['data'] as Map<String, dynamic>;
+            final onboardingComplete = statusData['is_onboarding_complete'] ?? statusData['onboarding_complete'] ?? true;
+            final canLogin = statusData['can_login'] == true;
+            final step = statusData['onboarding_step'] is int
+                ? (statusData['onboarding_step'] as int).clamp(1, 3)
+                : 1;
+
+            if (onboardingComplete == false) {
+              // Resume onboarding at the correct step
+              print('📍 Provider onboarding incomplete (step $step), redirecting to step $step');
+              if (mounted) context.go('/provider-onboarding/step$step');
+              return;
             }
-            return;
-          }
-          
-          // Onboarding is complete, check verification status
-          final statusResult = await ApiService.getProviderStatus(forceRefresh: false);
-          if (statusResult['success'] == true) {
-            final statusData = statusResult['data'];
-            if (statusData['can_login'] == true) {
-              // Re-register FCM token after successful login
-              await PushNotificationService.reRegisterToken();
-              context.go('/home');
-            } else {
-              // Show verification pending message
-              final verificationStatus = statusData['verification_status'] ?? 'unknown';
-              showDialog(
-                context: context,
-                builder: (context) => AlertDialog(
-                  title: const Text('Verification Pending'),
-                  content: Text(
-                    verificationStatus == 'pending'
-                        ? 'Your account is pending verification. Please wait for admin approval.'
-                        : 'Your account verification is $verificationStatus. Please contact support.',
-                  ),
-                  actions: [
-                    TextButton(
-                      onPressed: () {
-                        Navigator.pop(context);
-                        // Logout since they can't access the app
-                        ApiService.logout();
-                        if (mounted) context.go('/role-select');
-                      },
-                      child: const Text('OK'),
-                    ),
-                  ],
-                ),
-              );
+            if (!canLogin) {
+              // Onboarding done but not yet approved by admin
+              if (mounted) context.go('/provider-pending-approval');
+              return;
             }
           } else {
-            // Status check failed, but onboarding is complete
-            // Try to go to home anyway
-            await PushNotificationService.reRegisterToken();
-            context.go('/home');
+            // No provider profile yet (e.g. just signed up) -> onboarding step 1
+            if (statusResult['error']?['message']?.toString().toLowerCase().contains('not found') == true ||
+                statusResult['error']?['message']?.toString().toLowerCase().contains('complete onboarding') == true) {
+              if (mounted) context.go('/provider-onboarding/step1');
+              return;
+            }
           }
-        } else {
-          // Re-register FCM token after successful login
+          // Approved provider or status unclear: go home
           await PushNotificationService.reRegisterToken();
-          context.go('/home');
+          if (mounted) context.go('/home');
+          return;
         }
+
+        // Customer or other role
+        await PushNotificationService.reRegisterToken();
+        context.go('/home');
       } else {
         final error = result['error'];
+        
+        // Redirect to verify-email if account exists but email is not verified
+        if (error is Map && error['email_verified'] == false) {
+          final email = error['email']?.toString().trim();
+          if (email != null && email.isNotEmpty && mounted) {
+            final role = widget.role ?? 'customer';
+            context.go('/verify-email?email=${Uri.encodeComponent(email)}&role=${Uri.encodeComponent(role)}');
+            return;
+          }
+        }
         
         // Check if error is due to incomplete onboarding
         if (error is Map && error['onboarding_complete'] == false) {
@@ -211,7 +202,7 @@ class _LoginScreenState extends State<LoginScreen> {
               
               // Header
               Text(
-                'Hello !',
+                'Thank you.',
                 style: TextStyle(
                   color: AppColors.primary,
                   fontSize: 16,
@@ -248,6 +239,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     keyboardType: TextInputType.emailAddress,
                     decoration: const InputDecoration(
                       border: UnderlineInputBorder(),
+                      hintText: 'Enter your email',
                     ),
                   ),
                 ],
@@ -293,7 +285,7 @@ class _LoginScreenState extends State<LoginScreen> {
               Align(
                 alignment: Alignment.centerRight,
                 child: TextButton(
-                  onPressed: () {},
+                  onPressed: () => context.push('/forgot-password'),
                   child: Text(
                     'Forgot Password',
                     style: TextStyle(

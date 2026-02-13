@@ -32,9 +32,10 @@ class BottomNav extends StatelessWidget {
       //   ],
       ),
       child: SafeArea(
+        top: false,
         child: Container(
-          height: 70,
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+          height: 60,
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
@@ -104,7 +105,7 @@ class BottomNav extends StatelessWidget {
         },
         behavior: HitTestBehavior.opaque,
         child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 4),
+          padding: const EdgeInsets.symmetric(vertical: 2),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             mainAxisAlignment: MainAxisAlignment.center,
@@ -113,16 +114,16 @@ class BottomNav extends StatelessWidget {
               // Icon container with fixed size and centered alignment
               Center(
                 child: SizedBox(
-                  width: 24,
-                  height: 24,
+                  width: 22,
+                  height: 22,
                   child: Icon(
                     isActive ? activeIcon : icon,
                     color: isActive ? AppColors.primary : context.mutedForegroundColor,
-                    size: 24,
+                    size: 22,
                   ),
                 ),
               ),
-              const SizedBox(height: 4),
+              const SizedBox(height: 3),
               // Text with fixed width using w600 to prevent shifting
               // Using w600 for both states ensures consistent width
               Center(
@@ -131,10 +132,10 @@ class BottomNav extends StatelessWidget {
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: isActive ? AppColors.primary : context.mutedForegroundColor,
-                    fontSize: 11,
+                    fontSize: 10,
                     fontWeight: FontWeight.w600, // Same weight for both states
-                    height: 1.2,
-                    letterSpacing: 0.2, // Slight letter spacing for consistency
+                    height: 1.1,
+                    letterSpacing: 0.1, // Slight letter spacing for consistency
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.visible,
